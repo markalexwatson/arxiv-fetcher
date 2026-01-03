@@ -1,4 +1,5 @@
 {
+  "id": "/arxiv-fetcher/index.html",
   "name": "arXiv Batch Downloader",
   "short_name": "arXiv DL",
   "description": "Download multiple arXiv papers as a ZIP file",
@@ -23,5 +24,21 @@
     }
   ],
   "categories": ["productivity", "utilities"],
-  "lang": "en"
+  "lang": "en",
+  "screenshots": [
+    {
+      "src": "./screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "arXiv Batch Downloader - Desktop View"
+    },
+    {
+      "src": "./screenshot-narrow.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "arXiv Batch Downloader - Mobile View"
+    }
+  ]
 }
