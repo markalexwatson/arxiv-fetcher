@@ -538,7 +538,7 @@
     <div class="container">
         <header>
             <h1><span>arXiv</span> Batch Downloader</h1>
-            <span class="version" id="version">v0.1.1</span>
+            <span class="version" id="version">v0.1.2</span>
         </header>
 
         <!-- Input Section -->
@@ -623,7 +623,7 @@
         // Version: 0.1.0
         // ============================================================
 
-        const APP_VERSION = '0.1.1';
+        const APP_VERSION = '0.1.2';
 
         // Default CORS proxies (tried in order)
         // Note: Free proxies are unreliable and rate-limited
@@ -1516,7 +1516,7 @@
         // ============================================================
 
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js')
+            navigator.serviceWorker.register('./sw.js', { scope: './' })
                 .then(reg => log('info', 'Service worker registered'))
                 .catch(err => log('warn', `Service worker registration failed: ${err.message}`));
         }
