@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArXiv Fetcher (Robust Mode)</title>
+    <title>ArXiv Fetcher v1.2</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2563eb">
     <style>
@@ -24,7 +24,8 @@
             max-width: 800px;
             width: 100%;
         }
-        h1 { margin-top: 0; font-size: 1.5rem; color: #111827; }
+        h1 { margin-top: 0; font-size: 1.5rem; color: #111827; display: flex; align-items: center; justify-content: space-between; }
+        .version { font-size: 0.8rem; background: #e5e7eb; padding: 4px 8px; border-radius: 4px; color: #4b5563; }
         
         textarea {
             width: 100%;
@@ -74,17 +75,19 @@
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
         th { background-color: #f9fafb; text-align: left; padding: 0.75rem 1rem; position: sticky; top: 0; border-bottom: 1px solid #e5e7eb; z-index: 10; }
         td { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; }
+        
         tr.processing { background-color: #e0f2fe; }
         tr.done { background-color: #dcfce7; color: #166534; }
+        tr.error { background-color: #fee2e2; color: #991b1b; }
         
-        .status-log { font-size: 0.9rem; color: #6b7280; min-height: 1.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; font-weight: 500;}
+        .status-log { font-size: 0.9rem; color: #6b7280; min-height: 1.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; font-weight: 500; word-wrap: break-word;}
         .timer { font-weight: bold; color: #2563eb; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>ArXiv Fetcher (Robust)</h1>
+    <h1>ArXiv Fetcher <span class="version">v1.2</span></h1>
     
     <p>Paste your text below:</p>
     <textarea id="inputData" placeholder="Paste ArXiv IDs or table here..."></textarea>
@@ -119,12 +122,11 @@
 
     let papers = [];
     let isDownloading = false;
-    let abortController = null;
 
     // --- SETUP & PERMISSIONS ---
     async function triggerPermissionCheck() {
         const status = document.getElementById('statusLog');
-        status.textContent = "Triggering permission check...";
+        status.textContent = "Creating dummy downloads to trigger permissions...";
         const blob = new Blob(["test"], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
         
@@ -137,7 +139,7 @@
         document.body.appendChild(a2); a2.click();
         
         document.body.removeChild(a1); document.body.removeChild(a2);
-        status.textContent = "Check address bar for blocked popup icon!";
+        status.textContent = "Check address bar for blocked popup icon! (Icon looks like a box with a red x)";
     }
 
     // --- SCANNING ---
@@ -173,7 +175,7 @@
         }
 
         if (papers.length === 0) {
-            statusLog.textContent = "No IDs found.";
+            statusLog.textContent = "No valid IDs found in text.";
             return;
         }
 
@@ -190,7 +192,7 @@
 
         container.style.display = 'block';
         downloadBtn.style.display = 'block';
-        statusLog.textContent = `Found ${papers.length} papers.`;
+        statusLog.textContent = `Found ${papers.length} papers. v1.2 Ready.`;
     }
 
     function toggleAll(source) {
@@ -202,7 +204,7 @@
         isDownloading = false;
         document.getElementById('downloadBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
-        document.getElementById('statusLog').textContent = "Stopped. Click 'Download Selected' to resume remaining.";
+        document.getElementById('statusLog').textContent = "Stopped. Click 'Download Selected' to resume.";
     }
 
     async function startBatchDownload() {
@@ -217,18 +219,18 @@
         downloadBtn.style.display = 'none';
         stopBtn.style.display = 'block';
 
-        // Filter for only rows that haven't been marked 'done' visually
-        // This allows "Resuming" without re-downloading completed ones
         const queue = Array.from(checkboxes).filter(cb => {
             const row = document.getElementById(`row-${cb.dataset.index}`);
             return !row.classList.contains('done');
         });
 
         if (queue.length === 0) {
-            statusLog.textContent = "All selected papers are already downloaded.";
+            statusLog.textContent = "All selected papers are already marked done.";
             stopDownload();
             return;
         }
+
+        statusLog.textContent = `Starting batch of ${queue.length} files...`;
 
         for (let i = 0; i < queue.length; i++) {
             if (!isDownloading) break;
@@ -238,37 +240,51 @@
             const row = document.getElementById(`row-${index}`);
             const statusCell = document.getElementById(`status-${index}`);
 
-            // Mark as processing
             row.classList.add('processing');
-            statusCell.textContent = "Downloading...";
-            
-            // Trigger Download
+            statusCell.textContent = "Init...";
+
+            // Use 'v2' PDF link just in case (sometimes safer), usually safe to just use ID.
+            // ArXiv structure: https://arxiv.org/pdf/2502.16923.pdf
             const url = `https://arxiv.org/pdf/${paper.id}.pdf`;
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${paper.id}.pdf`;
-            link.target = '_blank';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
 
-            // Mark done immediately (we assume success on trigger)
-            row.classList.remove('processing');
-            row.classList.add('done');
-            statusCell.textContent = "✓ Triggered";
+            try {
+                console.log(`[v1.2] Attempting download: ${url}`);
+                statusCell.textContent = "Requesting...";
+                
+                // Create link
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${paper.id}.pdf`; 
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer'; // Security best practice
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Success assumption
+                row.classList.remove('processing');
+                row.classList.remove('error');
+                row.classList.add('done');
+                statusCell.textContent = "✓ Triggered";
+                
+            } catch (e) {
+                console.error(`[v1.2] Error on ${paper.id}:`, e);
+                row.classList.remove('processing');
+                row.classList.add('error');
+                statusCell.textContent = "❌ JS Error (Check Console)";
+            }
 
-            // If this is the last one, finish
             if (i === queue.length - 1) {
                 statusLog.textContent = "Batch Complete!";
                 stopDownload();
                 return;
             }
 
-            // WAIT LOOP (4 seconds)
-            // We use a visual countdown so you know it hasn't crashed
+            // 5 second delay with countdown
             let secondsLeft = 5;
             while (secondsLeft > 0 && isDownloading) {
-                statusLog.innerHTML = `Next file in <span class="timer">${secondsLeft}</span> seconds...`;
+                statusLog.innerHTML = `Next file in <span class="timer">${secondsLeft}</span>s... (If download didn't start, check popup blocker)`;
                 await new Promise(r => setTimeout(r, 1000));
                 secondsLeft--;
             }
