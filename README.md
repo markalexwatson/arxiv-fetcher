@@ -2,16 +2,25 @@
 
 A Progressive Web App (PWA) for downloading multiple arXiv papers as a single ZIP file.
 
-**Version:** 0.1.0
+**Version:** 0.1.2
 
 ## Features
 
 - **Paste & Parse**: Paste tables from spreadsheets, markdown, or plain text containing arXiv links
-- **Smart Extraction**: Automatically extracts arXiv IDs and associated paper titles
+- **Smart Extraction**: Automatically extracts arXiv IDs and associated paper titles, including Google redirect URLs
 - **Batch Download**: Download selected papers as a single ZIP file
-- **CORS Proxy Support**: Configurable proxy chain for bypassing arXiv's CORS restrictions
-- **Offline Ready**: PWA with service worker for offline access to the app shell
-- **Progress Tracking**: Real-time console logging and status indicators
+- **CORS Proxy Support**: Configurable proxy with fallback chain (includes Cloudflare Worker for reliable self-hosting)
+- **Offline Ready**: PWA with service worker — install to your device for quick access
+- **Progress Tracking**: Real-time console logging and per-paper status indicators
+- **Fallback Options**: "Open Failed in Browser" button for manual download when proxies fail
+
+## Quick Start
+
+1. Visit the app (GitHub Pages or local)
+2. Paste a table containing arXiv links
+3. Click **Parse Content**
+4. Select papers to download
+5. Click **Download Selected as ZIP**
 
 ## Supported Input Formats
 
@@ -25,114 +34,189 @@ The parser handles various URL formats including:
 - Google search redirects: `google.com/search?q=https://arxiv.org/pdf/...`
 - ar5iv.org alternative domain
 - Legacy arXiv format: `hep-th/9901001`
+- Versioned papers: `2301.12345v2`
 
-## Usage
+## Deployment
 
-1. **Paste content**: Copy a table or text containing arXiv links and paste into the input area
-2. **Parse**: Click "Parse Content" to extract papers
-3. **Select**: Use checkboxes to select which papers to download (all selected by default)
-4. **Download**: Click "Download Selected as ZIP" to fetch PDFs and create the archive
-
-## Installation
-
-### GitHub Pages Deployment
+### GitHub Pages
 
 1. Fork or clone this repository
 2. Enable GitHub Pages in repository settings (Settings → Pages)
-3. Set source to the branch containing these files
-4. Access at `https://yourusername.github.io/repository-name/`
+3. Set source to deploy from branch (main/master)
+4. Access at `https://yourusername.github.io/repo-name/`
+
+The app works correctly in subdirectories — no path configuration needed.
 
 ### Local Development
 
-Simply open `index.html` in a web browser, or serve with any static file server:
+Open `index.html` directly, or serve with any static file server:
 
 ```bash
-# Using Python
+# Python
 python -m http.server 8000
 
-# Using Node.js
+# Node.js
 npx serve .
 
-# Using PHP
+# PHP
 php -S localhost:8000
 ```
 
+## CORS Proxy Setup
+
+arXiv doesn't serve CORS headers, so requests must go through a proxy. The app includes fallback public proxies, but they're rate-limited and unreliable.
+
+### Recommended: Self-Hosted Cloudflare Worker (Free)
+
+Deploy your own proxy in 5 minutes for reliable, fast downloads.
+
+#### Quick Deploy (No CLI)
+
+1. Sign up at [Cloudflare](https://dash.cloudflare.com/sign-up) (free)
+2. Go to **Workers & Pages** → **Create Application** → **Create Worker**
+3. Name it (e.g., `arxiv-proxy`)
+4. Click **Edit Code** and paste the contents of `cloudflare-worker/worker.js`
+5. Click **Save and Deploy**
+6. Copy your worker URL
+
+#### Configure the App
+
+In the app's **Settings**, set CORS Proxy URL to:
+```
+https://your-worker-name.your-subdomain.workers.dev/?url=
+```
+
+Note the `?url=` at the end — this is required.
+
+#### Benefits
+
+- **Free tier**: 100,000 requests/day
+- **Fast**: Cloudflare's global edge network
+- **Secure**: Only proxies arxiv.org domains
+- **Reliable**: You control it
+
+See `cloudflare-worker/README.md` for advanced configuration.
+
+### Fallback Public Proxies
+
+The app falls back to these if your configured proxy fails:
+- `corsproxy.io`
+- `api.allorigins.win`
+- `api.codetabs.com`
+
+These are rate-limited and may fail during heavy use.
+
 ## Configuration
 
-### CORS Proxy
+Access settings via the **⚙ Settings** panel:
 
-arXiv doesn't serve CORS headers, so requests must go through a proxy. The app uses a fallback chain:
+| Setting | Default | Description |
+|---------|---------|-------------|
+| CORS Proxy URL | `https://corsproxy.io/?` | Proxy endpoint (add your Cloudflare Worker here) |
+| Request Delay | 1000ms | Delay between downloads to avoid rate limiting |
 
-1. `https://corsproxy.io/?` (default)
-2. `https://api.allorigins.win/raw?url=`
+Settings persist in localStorage.
 
-You can configure a custom proxy URL in Settings. The proxy must:
-- Accept the target URL as a query parameter
-- Return the response with appropriate CORS headers
+## PWA Installation
 
-### Request Delay
+The app can be installed as a standalone application:
 
-To avoid rate limiting, requests are spaced by a configurable delay (default: 500ms). Adjust in Settings if you encounter 429 errors.
+**Chrome/Edge:**
+- Click the install icon in the address bar, or
+- Menu → "Install arXiv Batch Downloader"
 
-## Known Limitations
+**Safari (iOS):**
+- Share → "Add to Home Screen"
 
-1. **CORS Dependency**: Relies on third-party CORS proxies which may be unreliable or rate-limited
-2. **Memory Usage**: Large batches (50+ papers) may consume significant browser memory
-3. **No Resume**: If the browser tab is closed, progress is lost
-4. **Title Extraction**: Titles are extracted from the pasted content, not fetched from arXiv metadata
+**Firefox:**
+- Not supported (Firefox removed PWA support on desktop)
 
 ## Troubleshooting
 
 ### "All proxies failed" errors
+- Deploy your own Cloudflare Worker (see above)
+- Try increasing the request delay in Settings
+- Use "Open Failed in Browser" button for manual download
 
-- Try a different CORS proxy in Settings
-- Reduce batch size and try again
-- Wait a few minutes (may be rate limited)
-
-### Papers marked as "Not found"
-
+### Papers marked as "Not found" (404)
 - Verify the arXiv ID is correct
-- Some very old papers may not be available as PDF
+- Some very old papers may not have PDFs available
+
+### Proxy test fails with 405
+- Ensure your proxy URL ends with `?url=`
+- If using Cloudflare Worker, redeploy with the latest `worker.js`
+
+### PWA won't install
+- Check DevTools → Application → Manifest for errors
+- Ensure you're on HTTPS (required for PWA)
+- Try unregistering old service workers and hard refresh
 
 ### ZIP file is empty
-
 - Check the console for error messages
 - Ensure at least one paper downloaded successfully
-
-## Privacy
-
-- No data is sent to any server except the configured CORS proxy and arXiv
-- Paper lists are not persisted (only settings are stored in localStorage)
-- Works entirely client-side
 
 ## File Structure
 
 ```
-├── index.html      # Main application (CSS/JS inlined)
-├── manifest.json   # PWA manifest
-├── sw.js          # Service worker
-├── icon-192.png   # App icon (192x192)
-├── icon-512.png   # App icon (512x512)
-└── README.md      # This file
+├── index.html              # Main application (CSS/JS inlined)
+├── manifest.json           # PWA manifest
+├── sw.js                   # Service worker for offline support
+├── icon-192.png            # App icon (192x192)
+├── icon-512.png            # App icon (512x512)
+├── README.md               # This file
+└── cloudflare-worker/
+    ├── worker.js           # Cloudflare Worker proxy script
+    ├── wrangler.toml       # Wrangler CLI configuration
+    └── README.md           # Worker deployment guide
 ```
+
+## Privacy
+
+- No analytics or tracking
+- No data sent to external servers except:
+  - Your configured CORS proxy
+  - arxiv.org (to fetch PDFs)
+- Paper lists are not persisted (only settings stored in localStorage)
+- Works entirely client-side
 
 ## Browser Support
 
-- Chrome/Edge 80+
-- Firefox 75+
-- Safari 14+ (limited PWA features)
+| Browser | Supported | PWA Install |
+|---------|-----------|-------------|
+| Chrome 80+ | ✅ | ✅ |
+| Edge 80+ | ✅ | ✅ |
+| Firefox 75+ | ✅ | ❌ |
+| Safari 14+ | ✅ | ✅ (iOS) |
 
-## License
+## Known Limitations
 
-MIT License - feel free to modify and redistribute.
+1. **CORS dependency**: Requires a proxy for arXiv downloads
+2. **Memory usage**: Large batches (50+ papers) may consume significant memory
+3. **No resume**: Progress lost if browser tab is closed mid-download
+4. **Title extraction**: Titles come from pasted content, not arXiv metadata API
 
 ## Changelog
 
+### v0.1.2
+- Fixed PWA installation for subdirectory hosting (GitHub Pages)
+- Fixed manifest and service worker paths
+
+### v0.1.1
+- Reduced console spam (Google redirect warning now shows once)
+- Increased default request delay to 1000ms
+- Added third fallback proxy (codetabs.com)
+- Added exponential backoff on consecutive failures
+- Added "Open Failed in Browser" button for manual fallback
+- Added Cloudflare Worker for self-hosted proxy
+
 ### v0.1.0
 - Initial release
-- Basic parsing for markdown tables, TSV, HTML tables, and plain text
+- Markdown, TSV, HTML, and plain text parsing
 - Google redirect URL extraction
-- CORS proxy fallback chain
 - ZIP download with JSZip
 - Console logging
 - Offline support via service worker
+
+## License
+
+MIT License — use freely for personal or commercial projects.
