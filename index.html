@@ -1,18 +1,3 @@
-This is the most common hurdle with browser-based batch tools. Browsers are designed to silently crush "popup storms" to prevent spam, so they often hide the "Blocked" notification after the first attempt.
-
-Here is **v1.6**.
-
-### **What's New (The Fix):**
-
-1. **"Test Permissions" Button:** I added a dedicated button to force the "Popup Blocked" icon to appear.
-2. **Auto-Pause on Block:** If the app detects a block, it **immediately pauses the batch** and shows a big red banner explaining exactly where to click to fix it.
-3. **Visual Guide:** The error message now tells you exactly where to look (the address bar icon) so you can whitelist the app permanently.
-
-### **Update Instructions:**
-
-Replace `index.html` on GitHub with the code below. Then refresh your app to **v1.6**.
-
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -380,5 +365,3 @@ Replace `index.html` on GitHub with the code below. Then refresh your app to **v
 </script>
 </body>
 </html>
-
-```
