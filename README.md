@@ -1,47 +1,138 @@
-# ArXiv Bulk Fetcher 📄⬇️
+# arXiv Batch Downloader
 
-A lightweight Progressive Web App (PWA) that extracts arXiv IDs from any text block or table and batch downloads the PDFs automatically.
+A Progressive Web App (PWA) for downloading multiple arXiv papers as a single ZIP file.
 
-Designed for researchers and students who need to grab multiple papers from a chat summary, reference list, or bibliography without clicking download on each one manually.
+**Version:** 0.1.0
 
-## 🚀 Features
+## Features
 
-* **Smart Scanning:** Pasting a block of text (e.g., a chatGPT summary, a bibliography, or a Markdown table) automatically detects valid arXiv IDs (e.g., `2502.16923`).
-* **Batch Download:** Select which papers you want and download them all with one click.
-* **PWA Ready:** Installs as a native app on ChromeOS, Windows, and macOS. Works offline (interface only).
-* **Privacy First:** Runs entirely in your browser. No data is sent to any external server.
+- **Paste & Parse**: Paste tables from spreadsheets, markdown, or plain text containing arXiv links
+- **Smart Extraction**: Automatically extracts arXiv IDs and associated paper titles
+- **Batch Download**: Download selected papers as a single ZIP file
+- **CORS Proxy Support**: Configurable proxy chain for bypassing arXiv's CORS restrictions
+- **Offline Ready**: PWA with service worker for offline access to the app shell
+- **Progress Tracking**: Real-time console logging and status indicators
 
-## 📦 How to Install (ChromeOS / Desktop)
+## Supported Input Formats
 
-This app is designed to be installed as a PWA via GitHub Pages.
+- **Markdown tables** with `|` delimiters
+- **Tab-separated values** (copy from Excel/Google Sheets)
+- **HTML tables**
+- **Plain text** with arXiv URLs inline
 
-### 1. Deploy
-1.  Fork or upload these files (`index.html`, `manifest.json`, `sw.js`) to a GitHub repository.
-2.  Go to **Settings** > **Pages**.
-3.  Set **Source** to `Deploy from a branch` (usually `main` / `root`).
-4.  Wait for the "Your site is live" link.
+The parser handles various URL formats including:
+- Direct arXiv links: `arxiv.org/abs/2301.12345` or `arxiv.org/pdf/2301.12345.pdf`
+- Google search redirects: `google.com/search?q=https://arxiv.org/pdf/...`
+- ar5iv.org alternative domain
+- Legacy arXiv format: `hep-th/9901001`
 
-### 2. Install to Device
-1.  Visit your GitHub Pages URL (e.g., `https://your-username.github.io/arxiv-fetcher`).
-2.  Look for the **Install icon** in the right side of your browser's address bar (or in the "three dots" menu > "Install ArXiv Bulk Fetcher").
-3.  The tool will launch in its own window and pin to your shelf/dock.
+## Usage
 
-## 🛠 Usage
+1. **Paste content**: Copy a table or text containing arXiv links and paste into the input area
+2. **Parse**: Click "Parse Content" to extract papers
+3. **Select**: Use checkboxes to select which papers to download (all selected by default)
+4. **Download**: Click "Download Selected as ZIP" to fetch PDFs and create the archive
 
-1.  **Paste:** Copy a list of papers, a markdown table, or a conversation summary into the text box.
-2.  **Scan:** Click **Scan Text**. The app will list all detected papers.
-3.  **Initialize Permissions:**
-    * *Important:* Click the **⚠️ Allow Multi-DL** button once.
-    * Chrome will likely block the batch download initially. Look for a **"Pop-up blocked"** icon in your address bar.
-    * Click it and select **"Always allow..."**.
-4.  **Download:** Select the papers you want and click **Download Selected**.
+## Installation
 
-## 📂 Project Structure
+### GitHub Pages Deployment
 
-* `index.html`: The core application logic and interface.
-* `manifest.json`: Configuration file that allows the website to be installed as a standalone app.
-* `sw.js`: A simple Service Worker required to satisfy PWA installation criteria.
+1. Fork or clone this repository
+2. Enable GitHub Pages in repository settings (Settings → Pages)
+3. Set source to the branch containing these files
+4. Access at `https://yourusername.github.io/repository-name/`
 
-## 📝 License
+### Local Development
 
-Unlicense / Public Domain. Feel free to use, modify, and share.
+Simply open `index.html` in a web browser, or serve with any static file server:
+
+```bash
+# Using Python
+python -m http.server 8000
+
+# Using Node.js
+npx serve .
+
+# Using PHP
+php -S localhost:8000
+```
+
+## Configuration
+
+### CORS Proxy
+
+arXiv doesn't serve CORS headers, so requests must go through a proxy. The app uses a fallback chain:
+
+1. `https://corsproxy.io/?` (default)
+2. `https://api.allorigins.win/raw?url=`
+
+You can configure a custom proxy URL in Settings. The proxy must:
+- Accept the target URL as a query parameter
+- Return the response with appropriate CORS headers
+
+### Request Delay
+
+To avoid rate limiting, requests are spaced by a configurable delay (default: 500ms). Adjust in Settings if you encounter 429 errors.
+
+## Known Limitations
+
+1. **CORS Dependency**: Relies on third-party CORS proxies which may be unreliable or rate-limited
+2. **Memory Usage**: Large batches (50+ papers) may consume significant browser memory
+3. **No Resume**: If the browser tab is closed, progress is lost
+4. **Title Extraction**: Titles are extracted from the pasted content, not fetched from arXiv metadata
+
+## Troubleshooting
+
+### "All proxies failed" errors
+
+- Try a different CORS proxy in Settings
+- Reduce batch size and try again
+- Wait a few minutes (may be rate limited)
+
+### Papers marked as "Not found"
+
+- Verify the arXiv ID is correct
+- Some very old papers may not be available as PDF
+
+### ZIP file is empty
+
+- Check the console for error messages
+- Ensure at least one paper downloaded successfully
+
+## Privacy
+
+- No data is sent to any server except the configured CORS proxy and arXiv
+- Paper lists are not persisted (only settings are stored in localStorage)
+- Works entirely client-side
+
+## File Structure
+
+```
+├── index.html      # Main application (CSS/JS inlined)
+├── manifest.json   # PWA manifest
+├── sw.js          # Service worker
+├── icon-192.png   # App icon (192x192)
+├── icon-512.png   # App icon (512x512)
+└── README.md      # This file
+```
+
+## Browser Support
+
+- Chrome/Edge 80+
+- Firefox 75+
+- Safari 14+ (limited PWA features)
+
+## License
+
+MIT License - feel free to modify and redistribute.
+
+## Changelog
+
+### v0.1.0
+- Initial release
+- Basic parsing for markdown tables, TSV, HTML tables, and plain text
+- Google redirect URL extraction
+- CORS proxy fallback chain
+- ZIP download with JSZip
+- Console logging
+- Offline support via service worker
