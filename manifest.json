@@ -1,20 +1,761 @@
+
+how do i prevent abuse prevention throttling in chrome? I'm writing a PWA that attempts to download multiple files automatically, but, despite explicitly granting permission beforehand, fails on blocked popups
+
+14:10
+This is a common frustration with PWAs doing batch downloads. Chrome's abuse prevention is quite aggressive, and even granted permissions don't fully bypass it.
+
+Here are the practical approaches, roughly in order of reliability:
+
+1. Use the File System Access API (most robust)
+
+This is the modern approach for PWAs needing to write multiple files:
+
+javascript
+async function downloadMultipleFiles(files) {
+  // Request a directory handle once
+  const dirHandle = await window.showDirectoryPicker();
+  
+  for (const file of files) {
+    const fileHandle = await dirHandle.getFileHandle(file.name, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(file.blob);
+    await writable.close();
+  }
+}
+User grants permission once, then you can write as many files as you like without triggering popup blockers.
+
+2. Zip the files and do a single download
+
+If you can't use File System Access (e.g., Safari support needed), bundle everything:
+
+javascript
+import JSZip from 'jszip';
+
+async function downloadAsZip(files) {
+  const zip = new JSZip();
+  files.forEach(f => zip.file(f.name, f.blob));
+  const blob = await zip.generateAsync({ type: 'blob' });
+  
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'files.zip';
+  a.click();
+}
+3. User-gesture chaining with delays
+
+If you must do sequential downloads, space them out and ensure each stems from user interaction:
+
+javascript
+async function downloadWithDelays(files) {
+  for (const file of files) {
+    await downloadSingleFile(file);
+    await new Promise(r => setTimeout(r, 1000)); // 1s gap
+  }
+}
+This is flaky though—Chrome's heuristics aren't publicly documented and change between versions.
+
+4. Service Worker + Streams (for generated content)
+
+If you're generating files client-side, you can use a service worker to handle download requests and stream content without triggering popup detection.
+
+Which approach fits your use case? If you're targeting modern browsers and can ask users to pick a folder, the File System Access API is by far the cleanest solution.
+
+ok - build me a prompt to build a PWA that:
+* scans c&p tables for: arxiv links and associated paper names
+* presents a check list to the user to select which papers to download
+* then robustly downloads a zip file of the papers in PDF form
+* present a console area for logging/debugging messages
+* indicate the version number (we'll need this I suspect as we iterate)
+Consider all possible failure conditions
+Assume the app is hosted in GitHub Pages
+
+14:45
+
+Architected comprehensive PWA prompt addressing arxiv integration, CORS constraints, and failure scenarios.
+
+
+
+Here's a comprehensive prompt for building this PWA:
+
+Prompt: ArXiv Paper Batch Downloader PWA
+Overview
+Build a single-page Progressive Web App (PWA) hosted on GitHub Pages that allows users to paste tabular data containing arXiv paper references, select which papers to download, and receive them as a single ZIP file containing PDFs.
+
+Version: 0.1.0
+
+Technical Constraints
+Hosting: GitHub Pages (static only, no backend)
+Framework: Vanilla JS or lightweight framework (Preact acceptable, no heavy frameworks)
+Bundling: Single HTML file with inlined CSS/JS, or minimal build step
+Target browsers: Chrome, Edge, Firefox (latest versions)
+Core User Flow
+User pastes tabular content (from spreadsheets, markdown tables, HTML tables, or plain text with links)
+App parses and extracts arXiv references with associated paper titles
+User sees a checklist of discovered papers with metadata
+User selects papers and clicks "Download"
+App fetches PDFs, bundles into ZIP, triggers download
+Progress and errors shown in console area
+Detailed Requirements
+1. Input Parsing
+Accept pasted content in these formats:
+
+HTML table markup (from browser copy)
+Tab-separated values (Excel/Sheets copy)
+Markdown tables
+Plain text with arXiv URLs interspersed
+Extract arXiv identifiers from URL variants:
+
+arxiv.org/abs/2301.12345
+arxiv.org/pdf/2301.12345
+arxiv.org/abs/2301.12345v2 (versioned)
+ar5iv.org/abs/2301.12345 (alternative domain)
+Legacy format: arxiv.org/abs/hep-th/9901001
+For each arXiv link, attempt to associate a paper title by:
+
+Text in the same table cell before/after the link
+Text in adjacent table cells (prefer left, then right)
+Link text itself if it's descriptive
+Fallback to arXiv ID as title
+2. User Interface
+Layout (top to bottom):
+
+Header with app name and version number (prominent, top-right)
+Paste area (large textarea with placeholder instructions)
+"Parse" button
+Results section (hidden until parse):
+Summary line: "Found X papers"
+Select all / Deselect all buttons
+Scrollable checklist of papers showing:
+Checkbox
+Paper title (truncated with tooltip for full title)
+arXiv ID (as subtle badge)
+Status indicator (pending/downloading/complete/error)
+"Download Selected as ZIP" button (disabled until selection made)
+Console area (collapsible, expanded by default):
+Monospace font, dark background
+Timestamps on each entry
+Log levels: INFO, WARN, ERROR (colour-coded)
+Auto-scroll to bottom, with scroll-lock toggle
+Clear console button
+Visual design:
+
+Clean, minimal aesthetic
+Responsive (works on tablet, usable on mobile)
+Clear visual feedback for all state changes
+Accessible (proper ARIA labels, keyboard navigation)
+3. PDF Fetching Strategy
+Critical: CORS Handling
+
+arXiv does not serve CORS headers. Implement this fallback chain:
+
+Primary: Use a public CORS proxy (configurable, default to https://corsproxy.io/?)
+Fallback: Try alternative proxies: https://api.allorigins.win/raw?url=
+Manual fallback: If all proxies fail, offer user a "Download Links" option that opens arXiv PDF URLs in new tabs (respecting popup limits by batching with user clicks)
+Proxy configuration:
+
+Store preferred proxy in localStorage
+Allow user to configure custom proxy URL in a settings panel
+Validate proxy is working before batch download begins
+Rate limiting:
+
+Implement configurable delay between requests (default: 500ms)
+Detect 429 responses and back off exponentially
+Allow user to adjust delay in settings
+4. Download and ZIP Creation
+Use JSZip for bundling. Handle:
+
+Progress tracking per file and overall
+Memory management for large batches (stream where possible)
+Filename sanitisation (remove invalid characters, handle duplicates)
+Filename format: {sanitised_title}_{arxiv_id}.pdf
+ZIP generation:
+
+Show progress during ZIP compression
+For very large ZIPs (>100MB), warn user before starting
+Use compression level 0 (store only) to speed up and reduce memory
+5. Error Handling Matrix
+Scenario	Detection	User feedback	Recovery
+No arXiv links found in paste	Zero matches after parse	Warning in console + inline message	Prompt to check input format
+Invalid arXiv ID format	Regex validation	Skip with warning, continue others	Show skipped items separately
+CORS proxy failure	Fetch error / non-PDF response	Console error + try next proxy	Automatic fallback chain
+arXiv rate limiting (429)	Response status	Console warning + pause indicator	Exponential backoff, resume
+Network failure mid-download	Fetch exception	Mark item as failed, continue others	"Retry failed" button
+PDF response is not actually PDF	Content-type check / magic bytes	Mark as error	Log actual content-type
+Individual PDF timeout	AbortController + 30s timeout	Mark as failed	Include in retry
+ZIP generation OOM	Try-catch around JSZip	Error message with suggestion	Offer to download in smaller batches
+Browser storage quota exceeded	QuotaExceededError	Clear warning	Suggest fewer files
+Popup blocked (fallback mode)	Window.open returns null	Explain and prompt for click	Batch 3 at a time with user clicks
+6. State Persistence
+Store in localStorage:
+
+Last used proxy preference
+Rate limit delay setting
+Console expanded/collapsed state
+Theme preference (if implemented)
+Do NOT persist:
+
+Parsed paper list (privacy)
+Downloaded content
+7. PWA Requirements
+manifest.json:
+
+App name: "arXiv Batch Downloader"
+Short name: "arXiv DL"
+Theme colour: appropriate for design
+Icons: 192x192 and 512x512 (simple PDF/download icon)
+Display: standalone
+Start URL: ./
+Service Worker:
+
+Cache app shell for offline launch
+Show offline message if user tries to download while offline
+Do NOT cache proxied PDF content
+8. Console Logging Specification
+Log these events with appropriate levels:
+
+INFO:  App initialised, version X.X.X
+INFO:  Parsing pasted content ({n} characters)
+INFO:  Found {n} arXiv references
+WARN:  Could not extract title for {arxiv_id}, using ID as filename
+INFO:  Starting download of {n} papers
+INFO:  [{current}/{total}] Fetching {arxiv_id}...
+INFO:  [{current}/{total}] Complete: {title} ({size} KB)
+WARN:  Proxy {url} failed, trying fallback
+ERROR: Failed to fetch {arxiv_id}: {error message}
+WARN:  Rate limited, waiting {n}ms before retry
+INFO:  Creating ZIP archive...
+INFO:  ZIP complete: {filename} ({size} MB)
+ERROR: ZIP generation failed: {error}
+INFO:  Download initiated
+9. Testing Checklist
+Provide test cases for:
+
+Markdown table with mixed arxiv.org and ar5iv.org links
+Excel paste with titles in column A, links in column B
+Plain text paragraph with inline links
+Table with some invalid/non-arXiv links mixed in
+Large batch (20+ papers)
+Network disconnection mid-download
+All proxies failing
+10. File Structure
+/
+├── index.html          # Main app (can be single file)
+├── manifest.json       # PWA manifest
+├── sw.js              # Service worker
+├── icons/
+│   ├── icon-192.png
+│   └── icon-512.png
+└── README.md          # Usage instructions
+Deliverables
+Complete source code matching structure above
+Inline comments explaining non-obvious logic
+README with:
+Feature description
+Known limitations
+Proxy configuration instructions
+Local development instructions
+Non-Goals (Explicit Exclusions)
+User accounts or authentication
+Server-side components
+Paper metadata fetching from arXiv API (title extraction from paste only)
+Reading list / favourites persistence
+Direct integration with reference managers
+Want me to adjust the scope, add features, or modify any of the technical choices?
+
+
+### **Cited ArXiv Papers (Sorted by Date)** | arXiv ID | Title (or Context from Paper) | Direct PDF Link | | --- | --- | --- | | **2502.16923** | **A Systematic Survey of Automatic Prompt Optimization Techniques (The uploaded paper)** | **[Download PDF](https://www.google.com/search?q=https://arxiv
+
+pasted
+
+here's some sample C&p input
+
+14:46
+
+Analyzed markdown table structure and identified parsing edge cases.
+
+
+
+
+
+Excellent sample! This reveals some important parsing edge cases I should add to the prompt. Let me note what I spotted:
+
+Format observations:
+
+Google search URL wrappers — The links aren't direct arXiv URLs, they're https://www.google.com/search?q=https://arxiv.org/pdf/XXXX.pdf. The parser needs to extract the arXiv URL from inside the query parameter.
+Markdown bold formatting — Some entries have **bold** around the arXiv ID and title (the first row). Parser should strip this.
+Clean structure — Title is reliably in column 2, arXiv ID in column 1. This is actually easier than the general case.
+ID formats — Mix of newer IDs (2502.16923) and older IDs (1508.05326), all in the YYMM.NNNNN format. No legacy category-prefix format in this sample.
+Let me update the prompt to handle the Google redirect pattern:
+
+Addition to Section 1 (Input Parsing):
+
+markdown
+#### URL Extraction
+
+Handle wrapped/redirected URLs:
+- Google search redirects: `google.com/search?q=https://arxiv.org/pdf/...`
+- URL-encoded variants: `https%3A%2F%2Farxiv.org%2Fpdf%2F...`
+- Markdown link syntax: `[text](url)`
+- HTML anchor tags: `<a href="url">text</a>`
+
+Extraction priority:
+1. Look for arxiv.org patterns anywhere in the URL/text
+2. URL-decode if necessary
+3. Normalise to canonical form: `https://arxiv.org/pdf/{id}.pdf`
+Want me to produce the complete updated prompt incorporating this, or shall we proceed to building the app directly? Given you have a concrete sample, we could just build it and iterate.
+
+produce the prompt, then execute it
+
+14:47
+
+Orchestrated comprehensive prompt creation and execution strategy.
+
+
+Here's the complete updated prompt, followed by execution:
+
+Prompt: ArXiv Paper Batch Downloader PWA
+Overview
+Build a single-page Progressive Web App (PWA) hosted on GitHub Pages that allows users to paste tabular data containing arXiv paper references, select which papers to download, and receive them as a single ZIP file containing PDFs.
+
+Version: 0.1.0
+
+Technical Constraints
+Hosting: GitHub Pages (static only, no backend)
+Framework: Vanilla JS (no framework dependencies)
+Bundling: Single HTML file with inlined CSS/JS for simplicity
+External dependencies (CDN): JSZip only
+Target browsers: Chrome, Edge, Firefox (latest versions)
+Core User Flow
+User pastes tabular content (from spreadsheets, markdown tables, HTML tables, or plain text with links)
+App parses and extracts arXiv references with associated paper titles
+User sees a checklist of discovered papers with metadata
+User selects papers and clicks "Download"
+App fetches PDFs, bundles into ZIP, triggers download
+Progress and errors shown in console area
+Detailed Requirements
+1. Input Parsing
+Accept pasted content in these formats:
+
+HTML table markup (from browser copy)
+Tab-separated values (Excel/Sheets copy)
+Markdown tables (with | delimiters)
+Plain text with arXiv URLs interspersed
+URL Extraction
+
+Handle wrapped/redirected URLs commonly seen in copied content:
+
+Google search redirects: google.com/search?q=https://arxiv.org/pdf/...
+URL-encoded variants: https%3A%2F%2Farxiv.org%2Fpdf%2F...
+Markdown link syntax: [text](url)
+HTML anchor tags: <a href="url">text</a>
+Extract arXiv identifiers from URL variants:
+
+arxiv.org/abs/2301.12345
+arxiv.org/pdf/2301.12345
+arxiv.org/pdf/2301.12345.pdf
+arxiv.org/abs/2301.12345v2 (versioned)
+ar5iv.org/abs/2301.12345 (alternative domain)
+Legacy format: arxiv.org/abs/hep-th/9901001
+arXiv ID Regex Patterns:
+
+Modern format: \d{4}\.\d{4,5}(v\d+)?
+Legacy format: [a-z-]+/\d{7}(v\d+)?
+Title Association Strategy:
+
+For markdown/TSV tables, detect column structure:
+
+If a column contains only arXiv IDs, look for title in adjacent columns
+Prefer column immediately to the left, then right
+Strip markdown formatting (**bold**, *italic*) from extracted titles
+For unstructured text:
+
+Text in the same table cell before/after the link
+Link text itself if descriptive (not just "Download PDF" or similar)
+Fallback to arXiv ID as title
+Deduplication:
+
+Track seen arXiv IDs (normalised, without version suffix)
+Skip duplicates, log warning to console
+2. User Interface
+Layout (top to bottom):
+
+┌─────────────────────────────────────────────────┐
+│  arXiv Batch Downloader              v0.1.0    │
+├─────────────────────────────────────────────────┤
+│  ┌───────────────────────────────────────────┐  │
+│  │ Paste table content here...               │  │
+│  │                                           │  │
+│  │                                           │  │
+│  └───────────────────────────────────────────┘  │
+│                              [ Parse Content ]  │
+├─────────────────────────────────────────────────┤
+│  Found 38 papers                                │
+│  [Select All] [Select None]                     │
+│  ┌───────────────────────────────────────────┐  │
+│  │ ☑ A Systematic Survey of Automat… 2502.16│  │
+│  │ ☑ Prompt-A-Video: Prompt Your Vi… 2412.15│  │
+│  │ ☐ IPO: Interpretable prompt opti… 2410.15│  │
+│  │   ...                                     │  │
+│  └───────────────────────────────────────────┘  │
+│         [ Download Selected as ZIP (36) ]       │
+├─────────────────────────────────────────────────┤
+│  Console  [Clear]                    [▼ Hide]   │
+│  ┌───────────────────────────────────────────┐  │
+│  │ 10:23:01 INFO  App initialised v0.1.0     │  │
+│  │ 10:23:15 INFO  Parsing content (4521 ch)  │  │
+│  │ 10:23:15 INFO  Found 38 arXiv references  │  │
+│  │ 10:23:15 WARN  Skipped duplicate: 2301.00│  │
+│  └───────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────┤
+│  ⚙ Settings                                     │
+└─────────────────────────────────────────────────┘
+Component Specifications:
+
+Header:
+
+App name left-aligned
+Version badge right-aligned, subtle styling
+Paste Area:
+
+Textarea, minimum 150px height, resizable vertically
+Placeholder text with brief instructions
+Accept paste via Ctrl+V or right-click
+"Parse Content" button below, right-aligned
+Results Section:
+
+Hidden until parse completes successfully
+Summary line with count
+Select All / Select None buttons
+Scrollable list (max-height: 300px)
+Each item shows:
+Checkbox
+Title (truncated to ~50 chars with ..., full title in title attribute)
+arXiv ID as subtle monospace badge
+Status icon: ⏳ pending, ⬇️ downloading, ✅ complete, ❌ error
+"Download Selected as ZIP" button
+Shows count in parentheses
+Disabled when nothing selected or download in progress
+Changes to "Downloading... (3/38)" during operation
+Console Area:
+
+Collapsible (remember state in localStorage)
+Dark background (
+#1e1e1e), monospace font
+Colour-coded levels: INFO (grey), WARN (orange), ERROR (red)
+Timestamps in HH:MM:SS format
+Auto-scroll to bottom (with internal flag to pause if user scrolls up)
+Clear button
+Maximum 500 entries (FIFO)
+Settings Panel:
+
+Collapsed by default, expandable
+CORS proxy URL (text input with current value shown)
+Request delay in ms (number input, range 100-5000, default 500)
+"Test Proxy" button
+Reset to defaults button
+Visual Design:
+
+Clean, minimal aesthetic
+System font stack
+Responsive (single column on mobile)
+Accessible (ARIA labels, focus indicators, keyboard navigation)
+Light theme with dark console
+3. PDF Fetching Strategy
+CORS Handling
+
+arXiv does not serve CORS headers. Implement fallback chain:
+
+javascript
+const PROXY_CHAIN = [
+  'https://corsproxy.io/?',
+  'https://api.allorigins.win/raw?url=',
+  'https://cors-anywhere.herokuapp.com/'  // Often requires temporary access
+];
+```
+
+**Fetch Logic:**
+```
+For each selected paper:
+  1. Construct direct URL: https://arxiv.org/pdf/{id}.pdf
+  2. Attempt fetch through configured proxy
+  3. On failure (network error, non-200, non-PDF response):
+     a. Try next proxy in chain
+     b. If all proxies exhausted, mark as failed
+  4. On success:
+     a. Verify response is PDF (check Content-Type or magic bytes %PDF-)
+     b. Store blob for ZIP
+  5. Wait configured delay before next request
+  6. Update UI progress
+Rate Limiting:
+
+Default delay: 500ms between requests
+On 429 response: exponential backoff (1s, 2s, 4s, 8s, max 30s)
+On 5 consecutive failures: pause and prompt user
+4. Download and ZIP Creation
+JSZip Configuration:
+
+javascript
+const zip = new JSZip();
+// Use STORE (no compression) for speed and memory efficiency
+// PDFs are already compressed
+zip.generateAsync({
+  type: 'blob',
+  compression: 'STORE'
+});
+Filename Generation:
+
+javascript
+function generateFilename(title, arxivId) {
+  const sanitised = title
+    .replace(/[<>:"/\\|?*]/g, '')  // Remove invalid chars
+    .replace(/\s+/g, '_')          // Spaces to underscores
+    .substring(0, 80);             // Limit length
+  return `${sanitised}_${arxivId}.pdf`;
+}
+Duplicate Filename Handling:
+
+Track used filenames
+Append _2, _3 etc. if collision
+Memory Management:
+
+For batches > 50 papers, warn user about memory usage
+Process in chunks if possible
+Clear blob references after adding to ZIP
+5. Error Handling Matrix
+Scenario	Detection	User Feedback	Recovery
+Empty paste	Textarea empty on parse	Inline message below textarea	Focus textarea
+No arXiv links found	Zero matches after parse	Warning in console + inline message "No arXiv links found. Check your input format."	Show example format
+Invalid arXiv ID format	Regex validation	Skip with warning, continue others	Show skipped items in console
+Google redirect URL	URL contains google.com/search	Extract inner URL automatically	Log extraction in console
+CORS proxy failure	Fetch error / non-200	Console error + status icon	Try next proxy automatically
+All proxies failed	Exhausted proxy chain	Mark item failed, show error count	"Retry Failed" button appears
+arXiv 429 rate limit	Response status 429	Console warning + "Rate limited, backing off..."	Exponential backoff, auto-resume
+arXiv 404 not found	Response status 404	Mark as "Not found"	Skip, continue others
+Network offline	navigator.onLine / fetch error	Banner "You appear to be offline"	Pause, auto-resume when online
+Response not PDF	Content-Type ≠ application/pdf AND no %PDF- magic bytes	Console error "Response was not a PDF"	Mark failed, continue
+PDF timeout	AbortController, 60s timeout	Console warning	Mark failed, include in retry
+ZIP generation failure	Try-catch around generateAsync	Error message with size estimate	Offer smaller batch
+User cancels mid-download	Cancel button clicked	"Download cancelled"	Reset state, preserve selections
+6. State Management
+Application State:
+
+javascript
+const state = {
+  papers: [],           // Array of {id, title, selected, status, blob, error}
+  isDownloading: false,
+  currentProxy: 0,
+  downloadProgress: { current: 0, total: 0 },
+  settings: {
+    proxyUrl: 'https://corsproxy.io/?',
+    requestDelay: 500
+  }
+};
+localStorage Keys:
+
+arxiv-dl-proxy: Custom proxy URL
+arxiv-dl-delay: Request delay setting
+arxiv-dl-console-visible: Boolean
+Do NOT persist:
+
+Paper list (privacy)
+Downloaded blobs
+7. PWA Requirements
+manifest.json:
+
+json
 {
-  "name": "ArXiv Bulk Fetcher",
-  "short_name": "ArXivFetch",
-  "start_url": ".",
+  "name": "arXiv Batch Downloader",
+  "short_name": "arXiv DL",
+  "description": "Download multiple arXiv papers as a ZIP file",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#2563eb",
+  "theme_color": "#b31b1b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
+```
+
+**Service Worker:**
+- Cache: index.html, manifest.json, icons
+- Network-first strategy for app shell
+- Do NOT cache proxied requests
+- Offline fallback: show cached app with "offline" banner
+
+#### 8. Console Logging Specification
+```
+INFO   App initialised, version 0.1.0
+INFO   Parsing pasted content (4521 characters)
+INFO   Detected format: Markdown table
+INFO   Found 38 arXiv references
+WARN   Stripped Google redirect wrapper from URL
+WARN   Duplicate arXiv ID skipped: 2301.12345
+WARN   Could not extract title for 2301.99999, using ID as filename
+INFO   Starting download of 36 papers
+INFO   Using proxy: corsproxy.io
+INFO   [1/36] Fetching 2502.16923...
+INFO   [1/36] ✓ A Systematic Survey... (2.4 MB)
+WARN   [5/36] Proxy failed, trying fallback...
+ERROR  [5/36] ✗ 2301.12345: All proxies failed
+WARN   [12/36] Rate limited (429), waiting 2000ms...
+INFO   [36/36] ✓ Download phase complete
+INFO   Creating ZIP archive...
+INFO   ZIP complete: arxiv_papers_36.zip (84.2 MB)
+INFO   Download initiated
+ERROR  ZIP generation failed: Out of memory
+9. Test Cases
+Test Input 1: Markdown table with Google redirects (from provided sample)
+
+markdown
+| arXiv ID | Title | Link |
+| --- | --- | --- |
+| 2502.16923 | A Systematic Survey | [PDF](https://www.google.com/search?q=https://arxiv.org/pdf/2502.16923.pdf) |
+```
+Expected: Extract ID 2502.16923, title "A Systematic Survey", handle Google wrapper
+
+**Test Input 2: Plain TSV (Excel copy)**
+```
+2301.12345	Some Paper Title	https://arxiv.org/abs/2301.12345
+2302.54321	Another Paper	https://arxiv.org/pdf/2302.54321.pdf
+```
+Expected: Parse tab-separated, extract both papers
+
+**Test Input 3: Plain text with inline links**
+```
+Check out this paper https://arxiv.org/abs/2301.12345 on prompt optimization.
+Also see ar5iv.org/abs/2302.99999 for related work.
+```
+Expected: Extract both IDs, use surrounding text as title hints
+
+**Test Input 4: Legacy arXiv format**
+```
+| hep-th/9901001 | M-Theory Paper | https://arxiv.org/abs/hep-th/9901001 |
+```
+Expected: Handle legacy ID format correctly
+
+**Test Input 5: Duplicates**
+```
+| 2301.12345 | Paper A | link |
+| 2301.12345 | Paper A duplicate | link |
+| 2301.12345v2 | Paper A version 2 | link |
+```
+Expected: Keep first occurrence only, log duplicates
+
+#### 10. File Structure
+```
+/
+├── index.html          # Complete app (single file, CSS/JS inlined)
+├── manifest.json       # PWA manifest
+├── sw.js              # Service worker
+├── icon-192.png       # App icon
+├── icon-512.png       # App icon
+└── README.md          # Documentation
+Success Criteria
+User can paste the provided sample markdown table
+All 38 papers are correctly parsed with titles
+Google redirect URLs are handled transparently
+User can select/deselect papers and see count update
+Download proceeds with visible progress
+Failed downloads are marked and retryable
+ZIP file downloads with correctly named PDFs
+App works offline (shows cached shell)
+All actions logged to console with timestamps
+Now executing the prompt:
+
+
+6 steps
+
+Create the service worker for offline support
+sw.js
+
+Deliberated icon generation methods and implementation strategies.
+
+
+
+Now let me create simple icons using ImageMagick:
+
+
+10 steps
+
+Presented 6 files
+
+Assembled resources and prepared comprehensive summary.
+
+Done. The complete PWA is ready for GitHub Pages deployment.
+
+What's included:
+
+File	Purpose
+index.html	Complete app (50KB, all CSS/JS inlined)
+manifest.json	PWA manifest with arXiv red theme
+sw.js	Service worker for offline support
+icon-192.png / icon-512.png	App icons
+README.md	Documentation
+To deploy:
+
+Create a new GitHub repo
+Push all 6 files to the root
+Enable GitHub Pages (Settings → Pages → Deploy from branch)
+Key implementation notes:
+
+Google redirect handling: Automatically strips google.com/search?q= wrappers
+Proxy chain: Falls back through corsproxy.io → allorigins.win automatically
+Title extraction: Parses markdown tables intelligently—detects your sample format where ID is column 1, title is column 2
+Rate limiting: 500ms default delay, configurable, with exponential backoff on 429s
+Memory-conscious: Uses STORE compression (no CPU overhead since PDFs are already compressed)
+I tested the parsing logic mentally against your sample—it should correctly extract all 38 papers with their titles, stripping the **bold** from the first row and handling the Google redirect URLs throughout.
+
+Let me know when you've tested it and we can iterate on any issues that surface.
+
+Index
+Code · HTML 
+Manifest
+Code · JSON 
+Sw
+JS 
+Icon 192
+Image · PNG 
+Icon 512
+Image · PNG 
+Readme
+Document · MD 
+
+
+
+
+
+Claude is AI and can make mistakes. Please double-check responses.
+Manifest · JSON
+Copy
+
+{
+  "name": "arXiv Batch Downloader",
+  "short_name": "arXiv DL",
+  "description": "Download multiple arXiv papers as a ZIP file",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#b31b1b",
+  "orientation": "any",
   "icons": [
     {
-      "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/External.svg/512px-External.svg.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/External.svg/512px-External.svg.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
+  "lang": "en"
 }
