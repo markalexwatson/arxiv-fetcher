@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArXiv Fetcher</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2563eb">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            width: 100%;
+        }
+        h1 { margin-top: 0; font-size: 1.5rem; color: #111827; display: flex; align-items: center; gap: 0.5rem; }
+        .badge { background: #dbeafe; color: #1e40af; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 4px; }
+        
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+
+        .controls { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;}
+        
+        button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            font-size: 0.95rem;
+        }
+        
+        .btn-primary { background-color: #2563eb; color: white; flex: 2; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        
+        .btn-action { background-color: #059669; color: white; flex: 2; display: none; }
+        .btn-action:hover { background-color: #047857; }
+        .btn-action:disabled { background-color: #9ca3af; cursor: wait; }
+
+        .btn-setup { background-color: #fffbeb; color: #b45309; border: 1px solid #fcd34d; flex: 1; }
+        .btn-setup:hover { background-color: #fef3c7; }
+
+        .table-wrapper {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            display: none;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th { background-color: #f9fafb; text-align: left; padding: 0.75rem 1rem; position: sticky; top: 0; border-bottom: 1px solid #e5e7eb; z-index: 10; }
+        td { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; }
+        tr:hover { background-color: #f9fafb; }
+        
+        .status-log { font-size: 0.85rem; color: #6b7280; min-height: 1.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>ArXiv Fetcher <span class="badge">PWA Ready</span></h1>
+    
+    <p><strong>Step 1:</strong> Paste your text or table below.</p>
+    <textarea id="inputData" placeholder="Paste text containing ArXiv IDs (e.g., 2502.16923) or a markdown table..."></textarea>
+
+    <div class="controls">
+        <button class="btn-primary" onclick="scanContent()">Scan Text</button>
+        <button class="btn-setup" onclick="triggerPermissionCheck()" title="Click this once to allow multiple downloads">⚠️ Allow Multi-DL</button>
+        <button id="downloadBtn" class="btn-action" onclick="downloadSelected()">Download Selected</button>
+    </div>
+
+    <div class="table-wrapper" id="tableContainer">
+        <table id="paperTable">
+            <thead>
+                <tr>
+                    <th style="width: 40px;"><input type="checkbox" id="selectAll" checked onclick="toggleAll(this)"></th>
+                    <th style="width: 120px;">ID</th>
+                    <th>Title / Context</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+
+    <div class="status-log" id="statusLog">Ready.</div>
+</div>
+
+<script>
+    // PWA Service Worker Registration
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js').then(reg => {
+                console.log('SW registered:', reg);
+            }).catch(err => console.log('SW registration failed:', err));
+        });
+    }
+
+    let papers = [];
+
+    // Hack to trigger the "Allow multiple downloads" prompt
+    async function triggerPermissionCheck() {
+        const status = document.getElementById('statusLog');
+        status.textContent = "Attempting to trigger browser permission prompt...";
+        
+        // Create two tiny dummy blobs
+        const blob = new Blob(["test"], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        
+        // Attempt download 1
+        const a1 = document.createElement('a'); a1.href = url; a1.download = "permission_test_1.txt";
+        document.body.appendChild(a1); a1.click();
+        
+        // Short pause
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Attempt download 2 - This usually triggers the Chrome "Allow multiple files?" popup
+        const a2 = document.createElement('a'); a2.href = url; a2.download = "permission_test_2.txt";
+        document.body.appendChild(a2); a2.click();
+        
+        // Cleanup
+        document.body.removeChild(a1); document.body.removeChild(a2);
+        status.textContent = "Check your address bar (top right) for a blocked popup icon. If seen, click it and select 'Always allow'.";
+    }
+
+    function scanContent() {
+        const text = document.getElementById('inputData').value;
+        const tableBody = document.getElementById('tableBody');
+        const container = document.getElementById('tableContainer');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusLog = document.getElementById('statusLog');
+
+        papers = [];
+        tableBody.innerHTML = '';
+        
+        const lines = text.split('\n');
+        // Regex for Markdown Tables | ID | Title |
+        const markdownRegex = /\|\s*(\d{4}\.\d{4,5})\s*\|\s*([^|]+)\|/;
+        // Regex for raw IDs
+        const rawIdRegex = /(\d{4}\.\d{4,5})/g;
+
+        let foundViaTable = false;
+
+        lines.forEach(line => {
+            const match = line.match(markdownRegex);
+            if (match) {
+                papers.push({ id: match[1].trim(), title: match[2].trim().replace(/\*\*/g, ''), selected: true });
+                foundViaTable = true;
+            }
+        });
+
+        if (!foundViaTable) {
+            const matches = [...new Set(text.match(rawIdRegex))];
+            if (matches && matches.length > 0) {
+                matches.forEach(id => papers.push({ id: id, title: "Title not found (ID detected)", selected: true }));
+            }
+        }
+
+        if (papers.length === 0) {
+            statusLog.textContent = "No IDs found.";
+            container.style.display = 'none';
+            downloadBtn.style.display = 'none';
+            return;
+        }
+
+        papers.forEach((paper, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="checkbox" class="paper-check" data-index="${index}" checked></td>
+                <td><a href="https://arxiv.org/abs/${paper.id}" target="_blank">${paper.id}</a></td>
+                <td>${paper.title}</td>
+            `;
+            tableBody.appendChild(row);
+        });
+
+        container.style.display = 'block';
+        downloadBtn.style.display = 'block';
+        statusLog.textContent = `Found ${papers.length} papers.`;
+    }
+
+    function toggleAll(source) {
+        document.querySelectorAll('.paper-check').forEach(cb => cb.checked = source.checked);
+    }
+
+    async function downloadSelected() {
+        const checkboxes = document.querySelectorAll('.paper-check:checked');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusLog = document.getElementById('statusLog');
+
+        downloadBtn.disabled = true;
+        
+        for (let i = 0; i < checkboxes.length; i++) {
+            const index = checkboxes[i].dataset.index;
+            const paper = papers[index];
+            const url = `https://arxiv.org/pdf/${paper.id}.pdf`;
+
+            statusLog.textContent = `Downloading (${i + 1}/${checkboxes.length}): ${paper.id}`;
+            
+            try {
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${paper.id}.pdf`;
+                link.target = '_blank';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                await new Promise(r => setTimeout(r, 1500)); 
+            } catch (e) { console.error(e); }
+        }
+
+        statusLog.textContent = "Batch complete.";
+        downloadBtn.disabled = false;
+    }
+</script>
+</body>
+</html>
