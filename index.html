@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArXiv Fetcher v1.4</title>
+    <title>ArXiv Fetcher v1.5</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2563eb">
     <style>
@@ -25,7 +25,7 @@
             width: 100%;
         }
         h1 { margin-top: 0; font-size: 1.5rem; color: #111827; display: flex; align-items: center; justify-content: space-between; }
-        .version { font-size: 0.8rem; background: #e0e7ff; padding: 4px 8px; border-radius: 4px; color: #3730a3; font-weight: bold; border: 1px solid #c7d2fe; }
+        .version { font-size: 0.8rem; background: #d1fae5; padding: 4px 8px; border-radius: 4px; color: #065f46; font-weight: bold; border: 1px solid #a7f3d0; }
         
         textarea {
             width: 100%;
@@ -59,6 +59,9 @@
         .btn-action:hover { background-color: #047857; }
         
         .btn-stop { background-color: #dc2626; color: white; flex: 1; display: none; }
+
+        .btn-reset { background: transparent; color: #6b7280; border: 1px solid #d1d5db; font-size: 0.8rem; padding: 0.5rem; }
+        .btn-reset:hover { background: #f3f4f6; color: #dc2626; border-color: #dc2626; }
         
         .slider-container {
             flex: 100%;
@@ -118,15 +121,16 @@
 <body>
 
 <div class="container">
-    <h1>ArXiv Fetcher <span class="version">v1.4 (Fixed)</span></h1>
+    <h1>ArXiv Fetcher <span class="version">v1.5</span></h1>
     
-    <textarea id="inputData" placeholder="Paste text here..."></textarea>
+    <textarea id="inputData" placeholder="Paste text containing 2502.16923..."></textarea>
 
     <div class="controls">
         <button class="btn-primary" onclick="scanContent()">1. Scan</button>
         <button id="downloadBtn" class="btn-action" onclick="startBatchDownload()">2. Start Batch</button>
         <button id="stopBtn" class="btn-stop" onclick="stopDownload()">Stop</button>
-        
+        <button class="btn-reset" onclick="hardReset()" title="Fixes stuck versions">Reset App</button>
+
         <div class="slider-container" id="speedControl" style="display:none;">
             <label for="delayRange">Speed (Delay):</label>
             <input type="range" id="delayRange" min="3" max="20" value="5" oninput="updateDelayLabel(this.value)">
@@ -141,26 +145,204 @@
                     <th style="width: 30px;"><input type="checkbox" id="selectAll" checked onclick="toggleAll(this)"></th>
                     <th style="width: 100px;">ID</th>
                     <th>Status</th>
-                    <th style="width: 60px;">Action</th>
+                    <th style="width: 80px;">Action</th>
                 </tr>
             </thead>
             <tbody id="tableBody"></tbody>
         </table>
     </div>
 
-    <div class="console-log" id="sysLog">System Ready.</div>
+    <div class="console-log" id="sysLog">System Ready. Waiting for text...</div>
 </div>
 
 <script>
+    // --- SERVICE WORKER REGISTRATION ---
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js'); });
     }
 
-    let papers = [];
-    let isDownloading = false;
-
+    // --- UTILS ---
     function log(msg, type = 'info') {
         const c = document.getElementById('sysLog');
         const span = document.createElement('div');
         span.textContent = `> ${msg}`;
         if (type === 'error') span.className = 'log-err';
+        if (type === 'warn') span.className = 'log-warn';
+        c.appendChild(span);
+        c.scrollTop = c.scrollHeight;
+    }
+
+    function hardReset() {
+        if(confirm("This will clear the cache and reload to fix 'stuck' buttons. Continue?")) {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                    for(let registration of registrations) { registration.unregister(); }
+                    window.location.reload(true);
+                });
+            } else {
+                window.location.reload(true);
+            }
+        }
+    }
+
+    let papers = [];
+    let isDownloading = false;
+
+    function updateDelayLabel(val) {
+        document.getElementById('delayLabel').textContent = val + "s";
+    }
+
+    // --- BULLETPROOF SCANNER ---
+    function scanContent() {
+        // 1. Force a UI update first to prove button works
+        log("Scan initiated...");
+        
+        const text = document.getElementById('inputData').value || "";
+        const tableBody = document.getElementById('tableBody');
+        const container = document.getElementById('tableContainer');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const speedControl = document.getElementById('speedControl');
+
+        if (text.trim().length === 0) {
+            log("Error: Text box is empty.", "error");
+            alert("Please paste some text first.");
+            return;
+        }
+
+        papers = [];
+        tableBody.innerHTML = '';
+
+        // 2. Simple global regex for IDs (YYYY.NNNNN)
+        const idRegex = /\d{4}\.\d{4,5}/g;
+        const matches = text.match(idRegex);
+
+        if (!matches || matches.length === 0) {
+            log("No IDs found in text.", "warn");
+            alert("No ArXiv IDs found (e.g. 2502.16923) in that text.");
+            return;
+        }
+
+        // 3. Deduplicate
+        const uniqueIds = [...new Set(matches)];
+        log(`Found ${uniqueIds.length} unique IDs.`);
+
+        // 4. Create rows
+        uniqueIds.forEach((id, index) => {
+            // Try to find a title context from the line
+            const line = text.split('\n').find(l => l.includes(id)) || "";
+            // Clean up the line to make a fake title
+            let title = line.replace(id, '').replace(/[|*[\]]/g, '').trim();
+            if (title.length < 5) title = "ID " + id;
+            if (title.length > 50) title = title.substring(0,50) + "...";
+
+            papers.push({ id: id, title: title });
+
+            const row = document.createElement('tr');
+            row.id = `row-${index}`;
+            const pdfUrl = `https://arxiv.org/pdf/${id}.pdf`;
+            
+            row.innerHTML = `
+                <td><input type="checkbox" class="paper-check" data-index="${index}" checked></td>
+                <td><a href="https://arxiv.org/abs/${id}" target="_blank">${id}</a></td>
+                <td id="status-${index}">${title}</td>
+                <td><a href="${pdfUrl}" target="_blank" class="manual-dl">Open PDF</a></td>
+            `;
+            tableBody.appendChild(row);
+        });
+
+        container.style.display = 'block';
+        downloadBtn.style.display = 'block';
+        speedControl.style.display = 'flex';
+        log("Table rendered.");
+    }
+
+    function toggleAll(source) {
+        document.querySelectorAll('.paper-check').forEach(cb => cb.checked = source.checked);
+    }
+
+    function stopDownload() {
+        isDownloading = false;
+        document.getElementById('downloadBtn').style.display = 'block';
+        document.getElementById('stopBtn').style.display = 'none';
+        log("Batch stopped.", "warn");
+    }
+
+    // --- BATCH DOWNLOADER ---
+    async function startBatchDownload() {
+        if (isDownloading) return;
+        isDownloading = true;
+
+        const downloadBtn = document.getElementById('downloadBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        
+        downloadBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
+
+        const checkboxes = document.querySelectorAll('.paper-check:checked');
+        const queue = Array.from(checkboxes).filter(cb => {
+            const row = document.getElementById(`row-${cb.dataset.index}`);
+            return !row.classList.contains('done');
+        });
+
+        if (queue.length === 0) {
+            log("Nothing to download (all done or none selected).");
+            stopDownload();
+            return;
+        }
+
+        log(`Queue: ${queue.length} items.`);
+
+        for (let i = 0; i < queue.length; i++) {
+            if (!isDownloading) break;
+
+            const index = queue[i].dataset.index;
+            const paper = papers[index];
+            const row = document.getElementById(`row-${index}`);
+            const statusCell = document.getElementById(`status-${index}`);
+
+            row.classList.add('processing');
+            statusCell.textContent = "Opening...";
+            
+            const url = `https://arxiv.org/pdf/${paper.id}.pdf`;
+
+            try {
+                // Trigger Window Open
+                const win = window.open(url, '_blank');
+                
+                if (!win || win.closed || typeof win.closed == 'undefined') {
+                    throw new Error("Blocked");
+                }
+
+                row.classList.remove('processing');
+                row.classList.add('done');
+                statusCell.textContent = "✓ Opened";
+                log(`Success: ${paper.id}`);
+
+            } catch (e) {
+                row.classList.remove('processing');
+                row.classList.add('error');
+                statusCell.textContent = "BLOCKED";
+                log(`Blocked: ${paper.id}. Check popup settings!`, "error");
+                // Don't stop the whole batch, just this one failed
+            }
+
+            if (i === queue.length - 1) {
+                log("Batch finished.");
+                stopDownload();
+                return;
+            }
+
+            // Delay
+            const currentDelay = parseInt(document.getElementById('delayRange').value);
+            let secondsLeft = currentDelay;
+            while (secondsLeft > 0 && isDownloading) {
+                statusCell.textContent = `Wait ${secondsLeft}s...`;
+                await new Promise(r => setTimeout(r, 1000));
+                secondsLeft--;
+            }
+            if(isDownloading && !row.classList.contains('error')) statusCell.textContent = "✓ Opened"; 
+        }
+    }
+</script>
+</body>
+</html>
