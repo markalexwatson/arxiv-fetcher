@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArXiv Fetcher v1.3</title>
+    <title>ArXiv Fetcher v1.4</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2563eb">
     <style>
@@ -25,7 +25,7 @@
             width: 100%;
         }
         h1 { margin-top: 0; font-size: 1.5rem; color: #111827; display: flex; align-items: center; justify-content: space-between; }
-        .version { font-size: 0.8rem; background: #dbeafe; padding: 4px 8px; border-radius: 4px; color: #1e40af; font-weight: bold; }
+        .version { font-size: 0.8rem; background: #e0e7ff; padding: 4px 8px; border-radius: 4px; color: #3730a3; font-weight: bold; border: 1px solid #c7d2fe; }
         
         textarea {
             width: 100%;
@@ -60,7 +60,6 @@
         
         .btn-stop { background-color: #dc2626; color: white; flex: 1; display: none; }
         
-        /* Slider for timing */
         .slider-container {
             flex: 100%;
             background: #f9fafb;
@@ -98,17 +97,28 @@
             border-radius: 4px;
             font-size: 0.8rem;
             margin-left: 10px;
+            display: inline-block;
         }
-        .manual-dl:hover { background: #d1d5db; }
-
-        .status-log { font-size: 0.9rem; color: #6b7280; min-height: 1.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; font-weight: 500; }
-        .timer { font-weight: bold; color: #2563eb; }
+        
+        .console-log {
+            background: #1f2937;
+            color: #10b981;
+            font-family: monospace;
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            height: 100px;
+            overflow-y: auto;
+            margin-top: 1rem;
+        }
+        .log-err { color: #ef4444; }
+        .log-warn { color: #f59e0b; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>ArXiv Fetcher <span class="version">v1.3</span></h1>
+    <h1>ArXiv Fetcher <span class="version">v1.4 (Fixed)</span></h1>
     
     <textarea id="inputData" placeholder="Paste text here..."></textarea>
 
@@ -119,8 +129,8 @@
         
         <div class="slider-container" id="speedControl" style="display:none;">
             <label for="delayRange">Speed (Delay):</label>
-            <input type="range" id="delayRange" min="3" max="20" value="8" oninput="updateDelayLabel(this.value)">
-            <span id="delayLabel">8s</span>
+            <input type="range" id="delayRange" min="3" max="20" value="5" oninput="updateDelayLabel(this.value)">
+            <span id="delayLabel">5s</span>
         </div>
     </div>
 
@@ -131,14 +141,14 @@
                     <th style="width: 30px;"><input type="checkbox" id="selectAll" checked onclick="toggleAll(this)"></th>
                     <th style="width: 100px;">ID</th>
                     <th>Status</th>
-                    <th style="width: 60px;">Link</th>
+                    <th style="width: 60px;">Action</th>
                 </tr>
             </thead>
             <tbody id="tableBody"></tbody>
         </table>
     </div>
 
-    <div class="status-log" id="statusLog">Ready.</div>
+    <div class="console-log" id="sysLog">System Ready.</div>
 </div>
 
 <script>
@@ -149,28 +159,8 @@
     let papers = [];
     let isDownloading = false;
 
-    function updateDelayLabel(val) {
-        document.getElementById('delayLabel').textContent = val + "s";
-    }
-
-    // --- SCANNING ---
-    function scanContent() {
-        const text = document.getElementById('inputData').value;
-        const tableBody = document.getElementById('tableBody');
-        const container = document.getElementById('tableContainer');
-        const downloadBtn = document.getElementById('downloadBtn');
-        const speedControl = document.getElementById('speedControl');
-        const statusLog = document.getElementById('statusLog');
-
-        papers = [];
-        tableBody.innerHTML = '';
-        
-        const lines = text.split('\n');
-        const markdownRegex = /\|\s*(\d{4}\.\d{4,5})\s*\|\s*([^|]+)\|/;
-        const rawIdRegex = /(\d{4}\.\d{4,5})/g;
-
-        let foundViaTable = false;
-
-        lines.forEach(line => {
-            const match = line.match(markdownRegex);
-            if (match
+    function log(msg, type = 'info') {
+        const c = document.getElementById('sysLog');
+        const span = document.createElement('div');
+        span.textContent = `> ${msg}`;
+        if (type === 'error') span.className = 'log-err';
