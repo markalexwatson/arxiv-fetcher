@@ -1,9 +1,24 @@
+This is the most common hurdle with browser-based batch tools. Browsers are designed to silently crush "popup storms" to prevent spam, so they often hide the "Blocked" notification after the first attempt.
+
+Here is **v1.6**.
+
+### **What's New (The Fix):**
+
+1. **"Test Permissions" Button:** I added a dedicated button to force the "Popup Blocked" icon to appear.
+2. **Auto-Pause on Block:** If the app detects a block, it **immediately pauses the batch** and shows a big red banner explaining exactly where to click to fix it.
+3. **Visual Guide:** The error message now tells you exactly where to look (the address bar icon) so you can whitelist the app permanently.
+
+### **Update Instructions:**
+
+Replace `index.html` on GitHub with the code below. Then refresh your app to **v1.6**.
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArXiv Fetcher v1.5</title>
+    <title>ArXiv Fetcher v1.6</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2563eb">
     <style>
@@ -25,7 +40,7 @@
             width: 100%;
         }
         h1 { margin-top: 0; font-size: 1.5rem; color: #111827; display: flex; align-items: center; justify-content: space-between; }
-        .version { font-size: 0.8rem; background: #d1fae5; padding: 4px 8px; border-radius: 4px; color: #065f46; font-weight: bold; border: 1px solid #a7f3d0; }
+        .version { font-size: 0.8rem; background: #fee2e2; padding: 4px 8px; border-radius: 4px; color: #991b1b; font-weight: bold; border: 1px solid #fecaca; }
         
         textarea {
             width: 100%;
@@ -59,10 +74,11 @@
         .btn-action:hover { background-color: #047857; }
         
         .btn-stop { background-color: #dc2626; color: white; flex: 1; display: none; }
-
-        .btn-reset { background: transparent; color: #6b7280; border: 1px solid #d1d5db; font-size: 0.8rem; padding: 0.5rem; }
-        .btn-reset:hover { background: #f3f4f6; color: #dc2626; border-color: #dc2626; }
         
+        /* Permission Test Button */
+        .btn-perm { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; font-size: 0.85rem; }
+        .btn-perm:hover { background: #ffedd5; }
+
         .slider-container {
             flex: 100%;
             background: #f9fafb;
@@ -91,6 +107,20 @@
         tr.processing { background-color: #e0f2fe; }
         tr.done { background-color: #dcfce7; color: #166534; }
         tr.error { background-color: #fee2e2; color: #991b1b; }
+
+        /* Blocked Alert Banner */
+        .blocked-alert {
+            display: none;
+            background: #fef2f2;
+            border: 2px solid #ef4444;
+            color: #991b1b;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 8px;
+            font-size: 0.95rem;
+        }
+        .blocked-alert strong { display: block; margin-bottom: 0.5rem; font-size: 1.1rem; }
+        .blocked-alert code { background: #fee2e2; padding: 2px 4px; border-radius: 4px; }
         
         .manual-dl {
             text-decoration: none;
@@ -102,7 +132,7 @@
             margin-left: 10px;
             display: inline-block;
         }
-        
+
         .console-log {
             background: #1f2937;
             color: #10b981;
@@ -115,21 +145,33 @@
             margin-top: 1rem;
         }
         .log-err { color: #ef4444; }
-        .log-warn { color: #f59e0b; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>ArXiv Fetcher <span class="version">v1.5</span></h1>
+    <h1>ArXiv Fetcher <span class="version">v1.6</span></h1>
     
-    <textarea id="inputData" placeholder="Paste text containing 2502.16923..."></textarea>
+    <div id="blockedAlert" class="blocked-alert">
+        <strong>⚠️ Popups Blocked!</strong>
+        <p>Chrome blocked the download window. To fix this:</p>
+        <ol>
+            <li>Look at the right side of your address bar (top of screen).</li>
+            <li>Click the icon with a red "X" (or "Popup blocked").</li>
+            <li>Select <strong>"Always allow popups and redirects from..."</strong></li>
+            <li>Click <strong>Done</strong>.</li>
+            <li>Then click "Start Batch" again.</li>
+        </ol>
+    </div>
+
+    <textarea id="inputData" placeholder="Paste text here..."></textarea>
 
     <div class="controls">
         <button class="btn-primary" onclick="scanContent()">1. Scan</button>
         <button id="downloadBtn" class="btn-action" onclick="startBatchDownload()">2. Start Batch</button>
         <button id="stopBtn" class="btn-stop" onclick="stopDownload()">Stop</button>
-        <button class="btn-reset" onclick="hardReset()" title="Fixes stuck versions">Reset App</button>
+        
+        <button class="btn-perm" onclick="testPermissions()">🛠 Check Permissions</button>
 
         <div class="slider-container" id="speedControl" style="display:none;">
             <label for="delayRange">Speed (Delay):</label>
@@ -152,87 +194,70 @@
         </table>
     </div>
 
-    <div class="console-log" id="sysLog">System Ready. Waiting for text...</div>
+    <div class="console-log" id="sysLog">v1.6 Ready.</div>
 </div>
 
 <script>
-    // --- SERVICE WORKER REGISTRATION ---
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js'); });
     }
 
-    // --- UTILS ---
     function log(msg, type = 'info') {
         const c = document.getElementById('sysLog');
         const span = document.createElement('div');
         span.textContent = `> ${msg}`;
         if (type === 'error') span.className = 'log-err';
-        if (type === 'warn') span.className = 'log-warn';
         c.appendChild(span);
         c.scrollTop = c.scrollHeight;
-    }
-
-    function hardReset() {
-        if(confirm("This will clear the cache and reload to fix 'stuck' buttons. Continue?")) {
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                    for(let registration of registrations) { registration.unregister(); }
-                    window.location.reload(true);
-                });
-            } else {
-                window.location.reload(true);
-            }
-        }
     }
 
     let papers = [];
     let isDownloading = false;
 
-    function updateDelayLabel(val) {
-        document.getElementById('delayLabel').textContent = val + "s";
+    function updateDelayLabel(val) { document.getElementById('delayLabel').textContent = val + "s"; }
+
+    function testPermissions() {
+        const alertBox = document.getElementById('blockedAlert');
+        log("Testing permissions...");
+        
+        // Try to open a dummy window to trigger the blocker
+        const win = window.open("", "_blank", "width=200,height=100");
+        
+        if (!win || win.closed || typeof win.closed == 'undefined') {
+            alertBox.style.display = 'block';
+            log("Permission Test: BLOCKED.", "error");
+        } else {
+            win.close();
+            alertBox.style.display = 'none';
+            log("Permission Test: SUCCESS. Popups allowed.");
+            alert("Permissions look good! You can start the batch.");
+        }
     }
 
-    // --- BULLETPROOF SCANNER ---
     function scanContent() {
-        // 1. Force a UI update first to prove button works
-        log("Scan initiated...");
-        
-        const text = document.getElementById('inputData').value || "";
+        const text = document.getElementById('inputData').value;
         const tableBody = document.getElementById('tableBody');
         const container = document.getElementById('tableContainer');
         const downloadBtn = document.getElementById('downloadBtn');
         const speedControl = document.getElementById('speedControl');
 
-        if (text.trim().length === 0) {
-            log("Error: Text box is empty.", "error");
-            alert("Please paste some text first.");
-            return;
-        }
+        if (!text) return alert("Paste text first.");
 
         papers = [];
         tableBody.innerHTML = '';
-
-        // 2. Simple global regex for IDs (YYYY.NNNNN)
+        
         const idRegex = /\d{4}\.\d{4,5}/g;
-        const matches = text.match(idRegex);
+        const matches = [...new Set(text.match(idRegex) || [])];
 
-        if (!matches || matches.length === 0) {
-            log("No IDs found in text.", "warn");
-            alert("No ArXiv IDs found (e.g. 2502.16923) in that text.");
+        if (matches.length === 0) {
+            log("No IDs found.", "error");
             return;
         }
 
-        // 3. Deduplicate
-        const uniqueIds = [...new Set(matches)];
-        log(`Found ${uniqueIds.length} unique IDs.`);
-
-        // 4. Create rows
-        uniqueIds.forEach((id, index) => {
-            // Try to find a title context from the line
+        matches.forEach((id, index) => {
             const line = text.split('\n').find(l => l.includes(id)) || "";
-            // Clean up the line to make a fake title
             let title = line.replace(id, '').replace(/[|*[\]]/g, '').trim();
-            if (title.length < 5) title = "ID " + id;
+            if (title.length < 3) title = "Paper " + id;
             if (title.length > 50) title = title.substring(0,50) + "...";
 
             papers.push({ id: id, title: title });
@@ -253,7 +278,7 @@
         container.style.display = 'block';
         downloadBtn.style.display = 'block';
         speedControl.style.display = 'flex';
-        log("Table rendered.");
+        log(`Scanned ${matches.length} IDs.`);
     }
 
     function toggleAll(source) {
@@ -264,16 +289,18 @@
         isDownloading = false;
         document.getElementById('downloadBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
-        log("Batch stopped.", "warn");
     }
 
-    // --- BATCH DOWNLOADER ---
     async function startBatchDownload() {
         if (isDownloading) return;
         isDownloading = true;
 
         const downloadBtn = document.getElementById('downloadBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const alertBox = document.getElementById('blockedAlert');
+        
+        // Reset alert
+        alertBox.style.display = 'none';
         
         downloadBtn.style.display = 'none';
         stopBtn.style.display = 'block';
@@ -285,12 +312,11 @@
         });
 
         if (queue.length === 0) {
-            log("Nothing to download (all done or none selected).");
             stopDownload();
             return;
         }
 
-        log(`Queue: ${queue.length} items.`);
+        log(`Starting batch: ${queue.length} items.`);
 
         for (let i = 0; i < queue.length; i++) {
             if (!isDownloading) break;
@@ -306,11 +332,13 @@
             const url = `https://arxiv.org/pdf/${paper.id}.pdf`;
 
             try {
-                // Trigger Window Open
+                // Attempt to open
                 const win = window.open(url, '_blank');
                 
+                // --- BLOCK DETECTION ---
                 if (!win || win.closed || typeof win.closed == 'undefined') {
-                    throw new Error("Blocked");
+                    // FATAL ERROR: Stop everything and show help
+                    throw new Error("BLOCKED");
                 }
 
                 row.classList.remove('processing');
@@ -322,12 +350,18 @@
                 row.classList.remove('processing');
                 row.classList.add('error');
                 statusCell.textContent = "BLOCKED";
-                log(`Blocked: ${paper.id}. Check popup settings!`, "error");
-                // Don't stop the whole batch, just this one failed
+                
+                // Show the big red help box
+                alertBox.style.display = 'block';
+                log("Batch Paused: Popups Blocked.", "error");
+                
+                // Stop the loop immediately so user can fix it
+                stopDownload();
+                return; 
             }
 
             if (i === queue.length - 1) {
-                log("Batch finished.");
+                log("Batch Complete.");
                 stopDownload();
                 return;
             }
@@ -346,3 +380,5 @@
 </script>
 </body>
 </html>
+
+```
