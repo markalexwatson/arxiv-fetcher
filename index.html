@@ -201,4 +201,148 @@
             tableBody.appendChild(row);
         });
 
-        container.
+        container.style.display = 'block';
+        zipBtn.style.display = 'block';
+        scriptBtn.style.display = 'block'; // Always offer script
+        log(`Scanned ${papers.length} papers.`);
+    }
+
+    function toggleAll(source) {
+        document.querySelectorAll('.paper-check').forEach(cb => cb.checked = source.checked);
+    }
+
+    async function startZipDownload(isRetry) {
+        const checkboxes = document.querySelectorAll('.paper-check:checked');
+        const zipBtn = document.getElementById('zipBtn');
+        const retryBtn = document.getElementById('retryBtn');
+
+        zipBtn.disabled = true;
+        retryBtn.disabled = true;
+
+        let queue = [];
+        
+        if (isRetry) {
+            // Only grab items that are NOT done
+            queue = Array.from(checkboxes).filter(cb => {
+                const row = document.getElementById(`row-${cb.dataset.index}`);
+                return !row.classList.contains('done');
+            });
+            log(`Retrying ${queue.length} failed items...`);
+        } else {
+            // Grab everything
+            queue = Array.from(checkboxes);
+            log("Starting fresh batch...");
+        }
+
+        if (queue.length === 0) {
+            log("Nothing to download.");
+            zipBtn.disabled = false; 
+            return;
+        }
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const cb of queue) {
+            const index = cb.dataset.index;
+            const paper = papers[index];
+            const row = document.getElementById(`row-${index}`);
+            const statusCell = document.getElementById(`status-${index}`);
+
+            row.classList.remove('error');
+            row.classList.add('processing');
+            statusCell.textContent = "Fetching...";
+
+            try {
+                // Use EXPORT subdomain (often cleaner)
+                const targetUrl = `https://export.arxiv.org/pdf/${paper.id}.pdf`;
+                // Proxy
+                const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(targetUrl);
+                
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const blob = await response.blob();
+                
+                // Check if we got a tiny error HTML page instead of PDF
+                if (blob.size < 2000) throw new Error("File too small (likely blocked)");
+
+                const safeTitle = paper.title.replace(/[^a-z0-9 ]/gi, '').trim().substring(0, 60);
+                const fileName = `${paper.id} - ${safeTitle || 'Paper'}.pdf`;
+
+                globalZip.file(fileName, blob);
+
+                row.classList.remove('processing');
+                row.classList.add('done');
+                statusCell.innerHTML = `✓ Saved`;
+                successCount++;
+
+                // 1.5s delay to be polite and avoid 403s
+                await new Promise(r => setTimeout(r, 1500));
+
+            } catch (err) {
+                row.classList.remove('processing');
+                row.classList.add('error');
+                statusCell.textContent = "Failed (403/Block)";
+                failCount++;
+                log(`Error ${paper.id}: ${err.message}`, 'err');
+            }
+        }
+
+        // Finalize
+        zipBtn.disabled = false;
+        retryBtn.disabled = false;
+
+        if (failCount > 0) {
+            retryBtn.style.display = 'block';
+            zipBtn.textContent = "Download Partial ZIP";
+            log(`Batch finished. ${failCount} failed. Click 'Retry Failed'.`, 'warn');
+        } else {
+            retryBtn.style.display = 'none';
+            zipBtn.textContent = "Download ZIP";
+            log("All downloads successful!", 'warn'); // using warn color for visibility
+        }
+
+        // Always offer the ZIP if we have files
+        if (successCount > 0 || Object.keys(globalZip.files).length > 0) {
+            generateZipFile();
+        }
+    }
+
+    async function generateZipFile() {
+        log("Generating ZIP...");
+        const content = await globalZip.generateAsync({type:"blob"});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = `arxiv_papers_${new Date().toISOString().slice(0,10)}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    function downloadShellScript() {
+        // Fallback for Linux/Terminal users
+        let scriptContent = "#!/bin/bash\n# ArXiv Bulk Downloader Script\n\n";
+        scriptContent += "mkdir -p arxiv_downloads\ncd arxiv_downloads\n\n";
+        
+        papers.forEach(p => {
+            const safeTitle = p.title.replace(/[^a-z0-9 ]/gi, '').trim().substring(0, 60);
+            const fileName = `${p.id} - ${safeTitle}.pdf`;
+            // Use User-Agent header to mimic browser
+            scriptContent += `echo "Downloading ${p.id}..."\n`;
+            scriptContent += `curl -L -A "Mozilla/5.0" -o "${fileName}" "https://export.arxiv.org/pdf/${p.id}.pdf"\n`;
+            scriptContent += "sleep 3\n\n"; // 3 second delay
+        });
+
+        const blob = new Blob([scriptContent], {type: "text/x-sh"});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = "download_papers.sh";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        log("Shell script downloaded. Run in terminal: sh download_papers.sh");
+    }
+</script>
+</body>
+</html>
