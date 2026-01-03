@@ -305,6 +305,14 @@
             display: inline-block;
         }
 
+        #open-failed-btn {
+            display: none;
+        }
+
+        #open-failed-btn.visible {
+            display: inline-block;
+        }
+
         #cancel-btn {
             display: none;
         }
@@ -530,7 +538,7 @@
     <div class="container">
         <header>
             <h1><span>arXiv</span> Batch Downloader</h1>
-            <span class="version" id="version">v0.1.0</span>
+            <span class="version" id="version">v0.1.1</span>
         </header>
 
         <!-- Input Section -->
@@ -561,8 +569,9 @@
             </div>
             <div class="download-actions">
                 <span class="progress-info" id="progress-info"></span>
-                <div style="display: flex; gap: 8px;">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <button class="btn-secondary" id="retry-btn">Retry Failed</button>
+                    <button class="btn-secondary" id="open-failed-btn">Open Failed in Browser</button>
                     <button class="btn-secondary" id="cancel-btn">Cancel</button>
                     <button class="btn-primary" id="download-btn" disabled>Download Selected as ZIP (0)</button>
                 </div>
@@ -596,7 +605,7 @@
                 </div>
                 <div class="setting-row">
                     <label for="delay-input">Request Delay (ms)</label>
-                    <input type="number" id="delay-input" min="100" max="5000" step="100" value="500">
+                    <input type="number" id="delay-input" min="100" max="5000" step="100" value="1000">
                 </div>
                 <div class="setting-row">
                     <button class="btn-secondary btn-small" id="reset-settings-btn">Reset to Defaults</button>
@@ -614,12 +623,14 @@
         // Version: 0.1.0
         // ============================================================
 
-        const APP_VERSION = '0.1.0';
+        const APP_VERSION = '0.1.1';
 
         // Default CORS proxies (tried in order)
+        // Note: Free proxies are unreliable and rate-limited
         const DEFAULT_PROXIES = [
             'https://corsproxy.io/?',
-            'https://api.allorigins.win/raw?url='
+            'https://api.allorigins.win/raw?url=',
+            'https://api.codetabs.com/v1/proxy?quest='
         ];
 
         // Application State
@@ -627,9 +638,11 @@
             papers: [],              // {id, title, selected, status, blob, error}
             isDownloading: false,
             isCancelled: false,
+            currentProxyIndex: 0,    // Track which proxy we're on
+            consecutiveFailures: 0,  // Track failures for backoff
             settings: {
                 proxyUrl: localStorage.getItem('arxiv-dl-proxy') || DEFAULT_PROXIES[0],
-                requestDelay: parseInt(localStorage.getItem('arxiv-dl-delay')) || 500
+                requestDelay: parseInt(localStorage.getItem('arxiv-dl-delay')) || 1000  // Increased default
             },
             consoleVisible: localStorage.getItem('arxiv-dl-console-visible') !== 'false'
         };
@@ -646,6 +659,7 @@
             selectNoneBtn: document.getElementById('select-none-btn'),
             downloadBtn: document.getElementById('download-btn'),
             retryBtn: document.getElementById('retry-btn'),
+            openFailedBtn: document.getElementById('open-failed-btn'),
             cancelBtn: document.getElementById('cancel-btn'),
             progressInfo: document.getElementById('progress-info'),
             console: document.getElementById('console'),
@@ -709,12 +723,19 @@
             url: /(?:arxiv\.org|ar5iv\.org)\/(?:abs|pdf)\/([^\s"'<>)\]]+)/gi
         };
 
+        // Track logged warnings to avoid spam
+        const loggedWarnings = new Set();
+
         // Extract arXiv ID from various URL formats
-        function extractArxivId(text) {
+        function extractArxivId(text, suppressLog = false) {
             // First, handle Google redirect URLs
             const googleMatch = text.match(/google\.com\/search\?q=([^&\s]+)/i);
             if (googleMatch) {
                 text = decodeURIComponent(googleMatch[1]);
+                if (!suppressLog && !loggedWarnings.has('google-redirect')) {
+                    log('info', 'Detected Google redirect URLs, extracting inner arXiv links');
+                    loggedWarnings.add('google-redirect');
+                }
             }
 
             // URL decode if needed
@@ -897,12 +918,7 @@
             for (let i = 0; i < cells.length; i++) {
                 const cell = cells[i];
 
-                // Check for Google redirect wrapper
-                if (cell.includes('google.com/search')) {
-                    log('warn', 'Stripped Google redirect wrapper from URL');
-                }
-
-                const id = extractArxivId(cell);
+                const id = extractArxivId(cell, true);  // Suppress log in loop
                 if (id && !arxivId) {
                     arxivId = id;
 
@@ -1076,9 +1092,11 @@
 
             state.isDownloading = true;
             state.isCancelled = false;
+            state.consecutiveFailures = 0;
             elements.downloadBtn.disabled = true;
             elements.cancelBtn.classList.add('visible');
             elements.retryBtn.classList.remove('visible');
+            elements.openFailedBtn.classList.remove('visible');
 
             // Disable checkboxes
             elements.paperList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.disabled = true);
@@ -1136,9 +1154,10 @@
 
             log('info', `Download phase complete: ${completed} succeeded, ${failed} failed`);
 
-            // Show retry button if there were failures
+            // Show retry and open-failed buttons if there were failures
             if (failed > 0) {
                 elements.retryBtn.classList.add('visible');
+                elements.openFailedBtn.classList.add('visible');
             }
 
             // Generate ZIP if we have any successful downloads
@@ -1159,8 +1178,16 @@
             const proxies = [state.settings.proxyUrl, ...DEFAULT_PROXIES.filter(p => p !== state.settings.proxyUrl)];
             let lastError = null;
 
-            for (const proxy of proxies) {
+            for (let proxyIndex = 0; proxyIndex < proxies.length; proxyIndex++) {
+                const proxy = proxies[proxyIndex];
                 if (state.isCancelled) return null;
+
+                // Add increasing delay between proxy attempts
+                if (proxyIndex > 0) {
+                    const backoffDelay = 1000 * proxyIndex;
+                    log('info', `Waiting ${backoffDelay}ms before trying next proxy...`);
+                    await sleep(backoffDelay);
+                }
 
                 try {
                     const proxyUrl = proxy + encodeURIComponent(url);
@@ -1177,8 +1204,15 @@
                     clearTimeout(timeout);
 
                     if (response.status === 429) {
-                        log('warn', `Rate limited (429), waiting before retry...`);
-                        await sleep(2000);
+                        log('warn', `Rate limited (429) on ${truncate(proxy, 25)}, backing off...`);
+                        state.consecutiveFailures++;
+                        const backoff = Math.min(30000, 2000 * Math.pow(2, state.consecutiveFailures));
+                        await sleep(backoff);
+                        continue;
+                    }
+
+                    if (response.status === 403) {
+                        log('warn', `Access denied (403) on ${truncate(proxy, 25)}, trying next...`);
                         continue;
                     }
 
@@ -1191,18 +1225,21 @@
                     // Verify it's a PDF (check magic bytes or content-type)
                     const isPdf = await verifyPdf(blob);
                     if (!isPdf) {
-                        log('warn', `Proxy ${proxy} returned non-PDF response, trying fallback...`);
+                        log('warn', `Proxy ${truncate(proxy, 25)} returned non-PDF, trying next...`);
                         continue;
                     }
 
+                    // Success! Reset failure counter
+                    state.consecutiveFailures = 0;
                     return blob;
 
                 } catch (error) {
                     lastError = error;
+                    state.consecutiveFailures++;
                     if (error.name === 'AbortError') {
-                        log('warn', `Timeout fetching ${arxivId} via ${truncate(proxy, 30)}`);
+                        log('warn', `Timeout on ${truncate(proxy, 25)}`);
                     } else {
-                        log('warn', `Proxy ${truncate(proxy, 30)} failed: ${error.message}`);
+                        log('warn', `Proxy ${truncate(proxy, 25)} failed: ${error.message}`);
                     }
                 }
             }
@@ -1356,6 +1393,39 @@
             downloadPapers();
         });
 
+        // Open failed papers in browser tabs
+        elements.openFailedBtn.addEventListener('click', () => {
+            const failedPapers = state.papers.filter(p => p.status === 'error');
+            if (failedPapers.length === 0) {
+                log('info', 'No failed papers to open');
+                return;
+            }
+
+            log('info', `Opening ${failedPapers.length} failed papers in browser tabs...`);
+            log('info', 'Note: Your browser may block popups. Allow popups for this site if needed.');
+
+            // Open in batches of 3 to avoid popup blocking
+            const batchSize = 3;
+            let opened = 0;
+
+            const openBatch = () => {
+                for (let i = 0; i < batchSize && opened < failedPapers.length; i++) {
+                    const paper = failedPapers[opened];
+                    const url = `https://arxiv.org/pdf/${paper.id}.pdf`;
+                    window.open(url, '_blank');
+                    opened++;
+                }
+
+                if (opened < failedPapers.length) {
+                    log('info', `Opened ${opened}/${failedPapers.length}. Click again to open more.`);
+                } else {
+                    log('info', `Opened all ${failedPapers.length} papers in browser tabs`);
+                }
+            };
+
+            openBatch();
+        });
+
         // Console controls
         elements.clearConsoleBtn.addEventListener('click', clearConsole);
 
@@ -1418,7 +1488,7 @@
 
         elements.resetSettingsBtn.addEventListener('click', () => {
             state.settings.proxyUrl = DEFAULT_PROXIES[0];
-            state.settings.requestDelay = 500;
+            state.settings.requestDelay = 1000;
             elements.proxyInput.value = state.settings.proxyUrl;
             elements.delayInput.value = state.settings.requestDelay;
             localStorage.removeItem('arxiv-dl-proxy');
