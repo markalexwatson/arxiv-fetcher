@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArXiv Fetcher</title>
+    <title>ArXiv Fetcher (Robust Mode)</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2563eb">
     <style>
@@ -24,8 +24,7 @@
             max-width: 800px;
             width: 100%;
         }
-        h1 { margin-top: 0; font-size: 1.5rem; color: #111827; display: flex; align-items: center; gap: 0.5rem; }
-        .badge { background: #dbeafe; color: #1e40af; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 4px; }
+        h1 { margin-top: 0; font-size: 1.5rem; color: #111827; }
         
         textarea {
             width: 100%;
@@ -59,8 +58,10 @@
         .btn-action:hover { background-color: #047857; }
         .btn-action:disabled { background-color: #9ca3af; cursor: wait; }
 
+        .btn-stop { background-color: #dc2626; color: white; flex: 1; display: none; }
+        .btn-stop:hover { background-color: #b91c1c; }
+
         .btn-setup { background-color: #fffbeb; color: #b45309; border: 1px solid #fcd34d; flex: 1; }
-        .btn-setup:hover { background-color: #fef3c7; }
 
         .table-wrapper {
             max-height: 400px;
@@ -73,23 +74,26 @@
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
         th { background-color: #f9fafb; text-align: left; padding: 0.75rem 1rem; position: sticky; top: 0; border-bottom: 1px solid #e5e7eb; z-index: 10; }
         td { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; }
-        tr:hover { background-color: #f9fafb; }
+        tr.processing { background-color: #e0f2fe; }
+        tr.done { background-color: #dcfce7; color: #166534; }
         
-        .status-log { font-size: 0.85rem; color: #6b7280; min-height: 1.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; }
+        .status-log { font-size: 0.9rem; color: #6b7280; min-height: 1.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; font-weight: 500;}
+        .timer { font-weight: bold; color: #2563eb; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>ArXiv Fetcher <span class="badge">PWA Ready</span></h1>
+    <h1>ArXiv Fetcher (Robust)</h1>
     
-    <p><strong>Step 1:</strong> Paste your text or table below.</p>
-    <textarea id="inputData" placeholder="Paste text containing ArXiv IDs (e.g., 2502.16923) or a markdown table..."></textarea>
+    <p>Paste your text below:</p>
+    <textarea id="inputData" placeholder="Paste ArXiv IDs or table here..."></textarea>
 
     <div class="controls">
-        <button class="btn-primary" onclick="scanContent()">Scan Text</button>
-        <button class="btn-setup" onclick="triggerPermissionCheck()" title="Click this once to allow multiple downloads">⚠️ Allow Multi-DL</button>
-        <button id="downloadBtn" class="btn-action" onclick="downloadSelected()">Download Selected</button>
+        <button class="btn-primary" onclick="scanContent()">1. Scan</button>
+        <button class="btn-setup" onclick="triggerPermissionCheck()">⚠️ Allow Multi-DL</button>
+        <button id="downloadBtn" class="btn-action" onclick="startBatchDownload()">2. Download Selected</button>
+        <button id="stopBtn" class="btn-stop" onclick="stopDownload()">Stop</button>
     </div>
 
     <div class="table-wrapper" id="tableContainer">
@@ -98,7 +102,7 @@
                 <tr>
                     <th style="width: 40px;"><input type="checkbox" id="selectAll" checked onclick="toggleAll(this)"></th>
                     <th style="width: 120px;">ID</th>
-                    <th>Title / Context</th>
+                    <th>Status</th>
                 </tr>
             </thead>
             <tbody id="tableBody"></tbody>
@@ -109,42 +113,34 @@
 </div>
 
 <script>
-    // PWA Service Worker Registration
     if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('sw.js').then(reg => {
-                console.log('SW registered:', reg);
-            }).catch(err => console.log('SW registration failed:', err));
-        });
+        window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js'); });
     }
 
     let papers = [];
+    let isDownloading = false;
+    let abortController = null;
 
-    // Hack to trigger the "Allow multiple downloads" prompt
+    // --- SETUP & PERMISSIONS ---
     async function triggerPermissionCheck() {
         const status = document.getElementById('statusLog');
-        status.textContent = "Attempting to trigger browser permission prompt...";
-        
-        // Create two tiny dummy blobs
+        status.textContent = "Triggering permission check...";
         const blob = new Blob(["test"], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
         
-        // Attempt download 1
-        const a1 = document.createElement('a'); a1.href = url; a1.download = "permission_test_1.txt";
+        const a1 = document.createElement('a'); a1.href = url; a1.download = "perm_check_1.txt";
         document.body.appendChild(a1); a1.click();
         
-        // Short pause
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 800));
         
-        // Attempt download 2 - This usually triggers the Chrome "Allow multiple files?" popup
-        const a2 = document.createElement('a'); a2.href = url; a2.download = "permission_test_2.txt";
+        const a2 = document.createElement('a'); a2.href = url; a2.download = "perm_check_2.txt";
         document.body.appendChild(a2); a2.click();
         
-        // Cleanup
         document.body.removeChild(a1); document.body.removeChild(a2);
-        status.textContent = "Check your address bar (top right) for a blocked popup icon. If seen, click it and select 'Always allow'.";
+        status.textContent = "Check address bar for blocked popup icon!";
     }
 
+    // --- SCANNING ---
     function scanContent() {
         const text = document.getElementById('inputData').value;
         const tableBody = document.getElementById('tableBody');
@@ -156,9 +152,7 @@
         tableBody.innerHTML = '';
         
         const lines = text.split('\n');
-        // Regex for Markdown Tables | ID | Title |
         const markdownRegex = /\|\s*(\d{4}\.\d{4,5})\s*\|\s*([^|]+)\|/;
-        // Regex for raw IDs
         const rawIdRegex = /(\d{4}\.\d{4,5})/g;
 
         let foundViaTable = false;
@@ -166,7 +160,7 @@
         lines.forEach(line => {
             const match = line.match(markdownRegex);
             if (match) {
-                papers.push({ id: match[1].trim(), title: match[2].trim().replace(/\*\*/g, ''), selected: true });
+                papers.push({ id: match[1].trim(), title: match[2].trim().replace(/\*\*/g, ''), status: 'pending' });
                 foundViaTable = true;
             }
         });
@@ -174,23 +168,22 @@
         if (!foundViaTable) {
             const matches = [...new Set(text.match(rawIdRegex))];
             if (matches && matches.length > 0) {
-                matches.forEach(id => papers.push({ id: id, title: "Title not found (ID detected)", selected: true }));
+                matches.forEach(id => papers.push({ id: id, title: "Detected ID", status: 'pending' }));
             }
         }
 
         if (papers.length === 0) {
             statusLog.textContent = "No IDs found.";
-            container.style.display = 'none';
-            downloadBtn.style.display = 'none';
             return;
         }
 
         papers.forEach((paper, index) => {
             const row = document.createElement('tr');
+            row.id = `row-${index}`;
             row.innerHTML = `
                 <td><input type="checkbox" class="paper-check" data-index="${index}" checked></td>
                 <td><a href="https://arxiv.org/abs/${paper.id}" target="_blank">${paper.id}</a></td>
-                <td>${paper.title}</td>
+                <td id="status-${index}">${paper.title}</td>
             `;
             tableBody.appendChild(row);
         });
@@ -204,34 +197,82 @@
         document.querySelectorAll('.paper-check').forEach(cb => cb.checked = source.checked);
     }
 
-    async function downloadSelected() {
-        const checkboxes = document.querySelectorAll('.paper-check:checked');
+    // --- ROBUST DOWNLOAD LOGIC ---
+    function stopDownload() {
+        isDownloading = false;
+        document.getElementById('downloadBtn').style.display = 'block';
+        document.getElementById('stopBtn').style.display = 'none';
+        document.getElementById('statusLog').textContent = "Stopped. Click 'Download Selected' to resume remaining.";
+    }
+
+    async function startBatchDownload() {
+        if (isDownloading) return;
+        isDownloading = true;
+
         const downloadBtn = document.getElementById('downloadBtn');
+        const stopBtn = document.getElementById('stopBtn');
         const statusLog = document.getElementById('statusLog');
+        const checkboxes = document.querySelectorAll('.paper-check:checked');
 
-        downloadBtn.disabled = true;
-        
-        for (let i = 0; i < checkboxes.length; i++) {
-            const index = checkboxes[i].dataset.index;
-            const paper = papers[index];
-            const url = `https://arxiv.org/pdf/${paper.id}.pdf`;
+        downloadBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
 
-            statusLog.textContent = `Downloading (${i + 1}/${checkboxes.length}): ${paper.id}`;
-            
-            try {
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `${paper.id}.pdf`;
-                link.target = '_blank';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                await new Promise(r => setTimeout(r, 1500)); 
-            } catch (e) { console.error(e); }
+        // Filter for only rows that haven't been marked 'done' visually
+        // This allows "Resuming" without re-downloading completed ones
+        const queue = Array.from(checkboxes).filter(cb => {
+            const row = document.getElementById(`row-${cb.dataset.index}`);
+            return !row.classList.contains('done');
+        });
+
+        if (queue.length === 0) {
+            statusLog.textContent = "All selected papers are already downloaded.";
+            stopDownload();
+            return;
         }
 
-        statusLog.textContent = "Batch complete.";
-        downloadBtn.disabled = false;
+        for (let i = 0; i < queue.length; i++) {
+            if (!isDownloading) break;
+
+            const index = queue[i].dataset.index;
+            const paper = papers[index];
+            const row = document.getElementById(`row-${index}`);
+            const statusCell = document.getElementById(`status-${index}`);
+
+            // Mark as processing
+            row.classList.add('processing');
+            statusCell.textContent = "Downloading...";
+            
+            // Trigger Download
+            const url = `https://arxiv.org/pdf/${paper.id}.pdf`;
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${paper.id}.pdf`;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Mark done immediately (we assume success on trigger)
+            row.classList.remove('processing');
+            row.classList.add('done');
+            statusCell.textContent = "✓ Triggered";
+
+            // If this is the last one, finish
+            if (i === queue.length - 1) {
+                statusLog.textContent = "Batch Complete!";
+                stopDownload();
+                return;
+            }
+
+            // WAIT LOOP (4 seconds)
+            // We use a visual countdown so you know it hasn't crashed
+            let secondsLeft = 5;
+            while (secondsLeft > 0 && isDownloading) {
+                statusLog.innerHTML = `Next file in <span class="timer">${secondsLeft}</span> seconds...`;
+                await new Promise(r => setTimeout(r, 1000));
+                secondsLeft--;
+            }
+        }
     }
 </script>
 </body>
