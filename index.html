@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArXiv Fetcher v3.0 (ZIP)</title>
+    <title>ArXiv Fetcher v3.2 (Retry + Script)</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2563eb">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -26,7 +26,7 @@
             width: 100%;
         }
         h1 { margin-top: 0; font-size: 1.5rem; color: #111827; display: flex; align-items: center; justify-content: space-between; }
-        .version { font-size: 0.8rem; background: #fef3c7; padding: 4px 8px; border-radius: 4px; color: #b45309; font-weight: bold; border: 1px solid #fcd34d; }
+        .version { font-size: 0.8rem; background: #fae8ff; padding: 4px 8px; border-radius: 4px; color: #86198f; font-weight: bold; border: 1px solid #e879f9; }
         
         textarea {
             width: 100%;
@@ -41,30 +41,31 @@
             resize: vertical;
         }
 
-        .controls { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center; }
+        .controls { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center; }
         
         button {
-            padding: 0.75rem 1.5rem;
+            padding: 0.75rem 1rem;
             border-radius: 6px;
             font-weight: 600;
             cursor: pointer;
             border: none;
             transition: all 0.2s;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
+            flex-grow: 1;
         }
         
-        .btn-primary { background-color: #2563eb; color: white; flex: 1; }
+        .btn-primary { background-color: #2563eb; color: white; }
         .btn-primary:hover { background-color: #1d4ed8; }
 
-        .btn-zip { 
-            background-color: #ea580c; 
-            color: white; 
-            flex: 2; 
-            display: none; 
-            box-shadow: 0 4px 6px -1px rgba(234, 88, 12, 0.3);
-        }
+        .btn-zip { background-color: #ea580c; color: white; display: none; }
         .btn-zip:hover { background-color: #c2410c; }
         .btn-zip:disabled { background-color: #9ca3af; cursor: wait; }
+
+        .btn-retry { background-color: #db2777; color: white; display: none; }
+        .btn-retry:hover { background-color: #be185d; }
+
+        .btn-script { background-color: #4b5563; color: white; display: none; }
+        .btn-script:hover { background-color: #374151; }
         
         .table-wrapper {
             max-height: 400px;
@@ -100,13 +101,15 @@
 <body>
 
 <div class="container">
-    <h1>ArXiv Fetcher <span class="version">v3.0 (ZIP)</span></h1>
+    <h1>ArXiv Fetcher <span class="version">v3.2</span></h1>
     
     <textarea id="inputData" placeholder="Paste ArXiv IDs or table here..."></textarea>
 
     <div class="controls">
         <button class="btn-primary" onclick="scanContent()">1. Scan</button>
-        <button id="zipBtn" class="btn-zip" onclick="startZipDownload()">2. Download ZIP</button>
+        <button id="zipBtn" class="btn-zip" onclick="startZipDownload(false)">2. Download ZIP</button>
+        <button id="retryBtn" class="btn-retry" onclick="startZipDownload(true)">Retry Failed</button>
+        <button id="scriptBtn" class="btn-script" onclick="downloadShellScript()">Export Curl Script</button>
     </div>
 
     <div class="table-wrapper" id="tableContainer">
@@ -122,7 +125,7 @@
         </table>
     </div>
 
-    <div class="console-log" id="sysLog">v3.0 Ready. Waiting for text...</div>
+    <div class="console-log" id="sysLog">v3.2 Ready. Uses export.arxiv.org + Retry logic.</div>
 </div>
 
 <script>
@@ -131,6 +134,8 @@
     }
 
     let papers = [];
+    // We hold the ZIP in memory so we can append to it on retries
+    let globalZip = new JSZip();
 
     function log(msg, type='info') {
         const c = document.getElementById('sysLog');
@@ -147,126 +152,53 @@
         const tableBody = document.getElementById('tableBody');
         const container = document.getElementById('tableContainer');
         const zipBtn = document.getElementById('zipBtn');
+        const scriptBtn = document.getElementById('scriptBtn');
 
         if (!text) return alert("Paste text first.");
 
         papers = [];
+        globalZip = new JSZip(); // Reset ZIP
         tableBody.innerHTML = '';
         
-        const idRegex = /\d{4}\.\d{4,5}/g;
-        const matches = [...new Set(text.match(idRegex) || [])];
+        const lines = text.split('\n');
+        const markdownRegex = /\|\s*(\d{4}\.\d{4,5})\s*\|\s*([^|]+)\|/;
+        const rawIdRegex = /(\d{4}\.\d{4,5})/g;
 
-        if (matches.length === 0) return log("No IDs found.", 'err');
+        let foundViaTable = false;
 
-        matches.forEach((id, index) => {
-            const line = text.split('\n').find(l => l.includes(id)) || "";
-            let title = line.replace(id, '').replace(/[|*[\]]/g, '').trim();
-            if (title.length > 50) title = title.substring(0,50) + "...";
-            if (!title) title = "Paper " + id;
+        lines.forEach(line => {
+            const match = line.match(markdownRegex);
+            if (match) {
+                const id = match[1].trim();
+                let title = match[2].trim().replace(/\*\*/g, '').replace(/\[.*?\]/g, '');
+                papers.push({ id: id, title: title });
+                foundViaTable = true;
+            }
+        });
 
-            papers.push({ id: id, title: title });
+        if (!foundViaTable) {
+            const matches = [...new Set(text.match(rawIdRegex) || [])];
+            matches.forEach(id => {
+                const line = lines.find(l => l.includes(id)) || "";
+                let title = line.replace(id, '').replace(/[|*[\]]/g, '').trim();
+                if (title.length < 5) title = "Paper";
+                if (title.length > 60) title = title.substring(0,60);
+                papers.push({ id: id, title: title });
+            });
+        }
 
+        if (papers.length === 0) return log("No IDs found.", 'err');
+
+        papers.forEach((paper, index) => {
             const row = document.createElement('tr');
             row.id = `row-${index}`;
+            const safeTitle = paper.title.replace(/[^a-z0-9 ]/gi, '').substring(0, 50);
             row.innerHTML = `
                 <td><input type="checkbox" class="paper-check" data-index="${index}" checked></td>
-                <td>${id}</td>
-                <td id="status-${index}">${title}</td>
+                <td>${paper.id}</td>
+                <td id="status-${index}" style="font-size:0.85rem;">${safeTitle}</td>
             `;
             tableBody.appendChild(row);
         });
 
-        container.style.display = 'block';
-        zipBtn.style.display = 'block';
-        log(`Scanned ${papers.length} papers. Ready to ZIP.`);
-    }
-
-    function toggleAll(source) {
-        document.querySelectorAll('.paper-check').forEach(cb => cb.checked = source.checked);
-    }
-
-    async function startZipDownload() {
-        const checkboxes = document.querySelectorAll('.paper-check:checked');
-        if (checkboxes.length === 0) return alert("Select papers first.");
-
-        const zipBtn = document.getElementById('zipBtn');
-        zipBtn.disabled = true;
-        zipBtn.textContent = "Fetching & Zipping...";
-
-        const zip = new JSZip();
-        let successCount = 0;
-
-        log("Starting batch fetch (via Proxy)...");
-
-        // Process Queue
-        for (const cb of checkboxes) {
-            const index = cb.dataset.index;
-            const paper = papers[index];
-            const row = document.getElementById(`row-${index}`);
-            const statusCell = document.getElementById(`status-${index}`);
-
-            row.classList.add('processing');
-            statusCell.textContent = "Fetching...";
-
-            try {
-                // FETCH via CORS Proxy
-                const targetUrl = `https://arxiv.org/pdf/${paper.id}.pdf`;
-                // Using corsproxy.io
-                const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(targetUrl);
-                
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                
-                const blob = await response.blob();
-
-                // Add to ZIP
-                zip.file(`${paper.id}.pdf`, blob);
-
-                row.classList.remove('processing');
-                row.classList.add('done');
-                statusCell.textContent = "✓ Zipped";
-                log(`Zipped: ${paper.id}`);
-                successCount++;
-
-            } catch (err) {
-                console.error(err);
-                row.classList.remove('processing');
-                row.classList.add('error');
-                statusCell.textContent = "Failed";
-                log(`Error on ${paper.id}: ${err.message}`, 'err');
-            }
-        }
-
-        if (successCount === 0) {
-            log("No files were fetched successfully.", 'err');
-            zipBtn.disabled = false;
-            zipBtn.textContent = "2. Download ZIP";
-            return;
-        }
-
-        // GENERATE ZIP
-        log("Generating ZIP file...");
-        statusCell = document.getElementById('sysLog'); // Just appending to log
-        
-        try {
-            const content = await zip.generateAsync({type:"blob"});
-            
-            // Trigger Download
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(content);
-            a.download = "arxiv_papers.zip";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            
-            log("ZIP downloaded successfully!");
-        } catch (err) {
-            log(`ZIP Generation Error: ${err.message}`, 'err');
-        }
-
-        zipBtn.disabled = false;
-        zipBtn.textContent = "2. Download ZIP";
-    }
-</script>
-</body>
-</html>
+        container.
