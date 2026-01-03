@@ -3,346 +3,1459 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArXiv Fetcher v3.2 (Retry + Script)</title>
+    <meta name="description" content="Download multiple arXiv papers as a ZIP file">
+    <meta name="theme-color" content="#b31b1b">
+    <title>arXiv Batch Downloader</title>
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#2563eb">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link rel="icon" type="image/png" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <!-- Fonts: IBM Plex for academic/technical feel -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #f3f4f6;
-            color: #1f2937;
-            padding: 2rem;
-            display: flex;
-            justify-content: center;
+        :root {
+            --arxiv-red: #b31b1b;
+            --arxiv-red-dark: #8b1515;
+            --arxiv-red-light: #d42c2c;
+            --bg-primary: #fafafa;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #f0f0f0;
+            --text-primary: #1a1a1a;
+            --text-secondary: #555555;
+            --text-muted: #888888;
+            --border-color: #e0e0e0;
+            --console-bg: #1e1e1e;
+            --console-text: #d4d4d4;
+            --success: #2e7d32;
+            --warning: #f57c00;
+            --error: #c62828;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+            --radius: 6px;
+            --transition: 150ms ease;
+        }
+
+        * {
+            box-sizing: border-box;
             margin: 0;
+            padding: 0;
         }
+
+        body {
+            font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
         .container {
-            background: white;
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
             max-width: 800px;
-            width: 100%;
+            margin: 0 auto;
+            padding: 24px 20px;
         }
-        h1 { margin-top: 0; font-size: 1.5rem; color: #111827; display: flex; align-items: center; justify-content: space-between; }
-        .version { font-size: 0.8rem; background: #fae8ff; padding: 4px 8px; border-radius: 4px; color: #86198f; font-weight: bold; border: 1px solid #e879f9; }
-        
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 32px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid var(--arxiv-red);
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+
+        h1 span {
+            color: var(--arxiv-red);
+        }
+
+        .version {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            background: var(--bg-tertiary);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        /* Sections */
+        section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        section h2 {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+        }
+
+        /* Paste Area */
         textarea {
             width: 100%;
-            height: 100px;
-            padding: 1rem;
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 0.85rem;
-            margin-bottom: 1rem;
-            box-sizing: border-box;
+            min-height: 150px;
+            padding: 12px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.875rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
             resize: vertical;
+            transition: border-color var(--transition), box-shadow var(--transition);
         }
 
-        .controls { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center; }
-        
+        textarea:focus {
+            outline: none;
+            border-color: var(--arxiv-red);
+            box-shadow: 0 0 0 3px rgba(179, 27, 27, 0.1);
+        }
+
+        textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        .input-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 12px;
+        }
+
+        /* Buttons */
         button {
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 0.875rem;
+            font-weight: 500;
+            padding: 10px 20px;
             border: none;
-            transition: all 0.2s;
-            font-size: 0.9rem;
-            flex-grow: 1;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: all var(--transition);
         }
-        
-        .btn-primary { background-color: #2563eb; color: white; }
-        .btn-primary:hover { background-color: #1d4ed8; }
 
-        .btn-zip { background-color: #ea580c; color: white; display: none; }
-        .btn-zip:hover { background-color: #c2410c; }
-        .btn-zip:disabled { background-color: #9ca3af; cursor: wait; }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
 
-        .btn-retry { background-color: #db2777; color: white; display: none; }
-        .btn-retry:hover { background-color: #be185d; }
+        .btn-primary {
+            background: var(--arxiv-red);
+            color: white;
+        }
 
-        .btn-script { background-color: #4b5563; color: white; display: none; }
-        .btn-script:hover { background-color: #374151; }
-        
-        .table-wrapper {
-            max-height: 400px;
-            overflow-y: auto;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            margin-bottom: 1.5rem;
+        .btn-primary:hover:not(:disabled) {
+            background: var(--arxiv-red-dark);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: var(--border-color);
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.8125rem;
+        }
+
+        .btn-icon {
+            padding: 6px 10px;
+            background: transparent;
+            color: var(--text-secondary);
+        }
+
+        .btn-icon:hover {
+            background: var(--bg-tertiary);
+        }
+
+        /* Results Section */
+        #results-section {
             display: none;
         }
-        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        th { background-color: #f9fafb; text-align: left; padding: 0.75rem 1rem; position: sticky; top: 0; border-bottom: 1px solid #e5e7eb; z-index: 10; }
-        td { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
-        
-        tr.processing { background-color: #e0f2fe; }
-        tr.done { background-color: #dcfce7; color: #166534; }
-        tr.error { background-color: #fee2e2; color: #991b1b; }
-        
-        .console-log {
-            background: #1f2937;
-            color: #10b981;
-            font-family: monospace;
-            padding: 1rem;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            margin-top: 1rem;
-            height: 120px;
-            overflow-y: auto;
+
+        #results-section.visible {
+            display: block;
         }
-        .log-warn { color: #facc15; }
-        .log-err { color: #f87171; }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .results-summary {
+            font-weight: 500;
+        }
+
+        .selection-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Paper List */
+        .paper-list {
+            max-height: 350px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+        }
+
+        .paper-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-color);
+            gap: 12px;
+            transition: background var(--transition);
+        }
+
+        .paper-item:last-child {
+            border-bottom: none;
+        }
+
+        .paper-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .paper-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--arxiv-red);
+            flex-shrink: 0;
+        }
+
+        .paper-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .paper-title {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 0.875rem;
+        }
+
+        .paper-id {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            background: var(--bg-tertiary);
+            padding: 2px 6px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .paper-status {
+            width: 20px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .status-pending { color: var(--text-muted); }
+        .status-downloading { color: var(--arxiv-red); }
+        .status-complete { color: var(--success); }
+        .status-error { color: var(--error); }
+
+        /* Download Actions */
+        .download-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .progress-info {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        #retry-btn {
+            display: none;
+        }
+
+        #retry-btn.visible {
+            display: inline-block;
+        }
+
+        #cancel-btn {
+            display: none;
+        }
+
+        #cancel-btn.visible {
+            display: inline-block;
+        }
+
+        /* Console */
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .console-header h2 {
+            margin-bottom: 0;
+        }
+
+        .console-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .console-container {
+            background: var(--console-bg);
+            border-radius: var(--radius);
+            padding: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.8125rem;
+            line-height: 1.5;
+        }
+
+        .console-container.collapsed {
+            display: none;
+        }
+
+        .log-entry {
+            color: var(--console-text);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .log-entry .timestamp {
+            color: #6a9955;
+        }
+
+        .log-entry.info .level { color: #9cdcfe; }
+        .log-entry.warn .level { color: #dcdcaa; }
+        .log-entry.error .level { color: #f14c4c; }
+        .log-entry.warn { color: #dcdcaa; }
+        .log-entry.error { color: #f14c4c; }
+
+        /* Settings */
+        #settings-section {
+            border: none;
+            background: transparent;
+            box-shadow: none;
+            padding: 0;
+        }
+
+        .settings-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            cursor: pointer;
+            padding: 8px 0;
+        }
+
+        .settings-toggle:hover {
+            color: var(--text-primary);
+        }
+
+        .settings-content {
+            display: none;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-top: 8px;
+        }
+
+        .settings-content.visible {
+            display: block;
+        }
+
+        .setting-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .setting-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .setting-row label {
+            font-size: 0.875rem;
+            min-width: 120px;
+        }
+
+        .setting-row input[type="text"],
+        .setting-row input[type="number"] {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.8125rem;
+        }
+
+        .setting-row input:focus {
+            outline: none;
+            border-color: var(--arxiv-red);
+        }
+
+        /* Offline Banner */
+        .offline-banner {
+            display: none;
+            background: var(--warning);
+            color: white;
+            text-align: center;
+            padding: 8px;
+            font-size: 0.875rem;
+        }
+
+        .offline-banner.visible {
+            display: block;
+        }
+
+        /* Error Message */
+        .error-message {
+            display: none;
+            background: #ffeaea;
+            border: 1px solid var(--error);
+            color: var(--error);
+            padding: 12px;
+            border-radius: var(--radius);
+            margin-top: 12px;
+            font-size: 0.875rem;
+        }
+
+        .error-message.visible {
+            display: block;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .container {
+                padding: 16px 12px;
+            }
+
+            header {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .results-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .paper-info {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+
+            .download-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+
+        /* Animations */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinning {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+
+        /* Scrollbar styling for console */
+        .console-container::-webkit-scrollbar,
+        .paper-list::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .console-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .console-container::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+
+        .paper-list::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+        }
+
+        .paper-list::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
-
-<div class="container">
-    <h1>ArXiv Fetcher <span class="version">v3.2</span></h1>
-    
-    <textarea id="inputData" placeholder="Paste ArXiv IDs or table here..."></textarea>
-
-    <div class="controls">
-        <button class="btn-primary" onclick="scanContent()">1. Scan</button>
-        <button id="zipBtn" class="btn-zip" onclick="startZipDownload(false)">2. Download ZIP</button>
-        <button id="retryBtn" class="btn-retry" onclick="startZipDownload(true)">Retry Failed</button>
-        <button id="scriptBtn" class="btn-script" onclick="downloadShellScript()">Export Curl Script</button>
+    <div class="offline-banner" id="offline-banner">
+        ⚠️ You appear to be offline. Downloads require an internet connection.
     </div>
 
-    <div class="table-wrapper" id="tableContainer">
-        <table id="paperTable">
-            <thead>
-                <tr>
-                    <th style="width: 50px;"><input type="checkbox" id="selectAll" checked onclick="toggleAll(this)"></th>
-                    <th style="width: 100px;">ID</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody id="tableBody"></tbody>
-        </table>
+    <div class="container">
+        <header>
+            <h1><span>arXiv</span> Batch Downloader</h1>
+            <span class="version" id="version">v0.1.0</span>
+        </header>
+
+        <!-- Input Section -->
+        <section id="input-section">
+            <h2>Paste Content</h2>
+            <textarea 
+                id="paste-input" 
+                placeholder="Paste a table containing arXiv links here...&#10;&#10;Supported formats:&#10;• Markdown tables&#10;• Excel/Sheets copy (tab-separated)&#10;• HTML tables&#10;• Plain text with arXiv URLs"
+                aria-label="Paste content containing arXiv links"
+            ></textarea>
+            <div class="error-message" id="parse-error"></div>
+            <div class="input-actions">
+                <button class="btn-primary" id="parse-btn">Parse Content</button>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section id="results-section">
+            <div class="results-header">
+                <span class="results-summary" id="results-summary">Found 0 papers</span>
+                <div class="selection-buttons">
+                    <button class="btn-secondary btn-small" id="select-all-btn">Select All</button>
+                    <button class="btn-secondary btn-small" id="select-none-btn">Select None</button>
+                </div>
+            </div>
+            <div class="paper-list" id="paper-list" role="list" aria-label="Parsed papers">
+                <!-- Paper items rendered here -->
+            </div>
+            <div class="download-actions">
+                <span class="progress-info" id="progress-info"></span>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-secondary" id="retry-btn">Retry Failed</button>
+                    <button class="btn-secondary" id="cancel-btn">Cancel</button>
+                    <button class="btn-primary" id="download-btn" disabled>Download Selected as ZIP (0)</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Console Section -->
+        <section id="console-section">
+            <div class="console-header">
+                <h2>Console</h2>
+                <div class="console-actions">
+                    <button class="btn-icon btn-small" id="clear-console-btn" title="Clear console">Clear</button>
+                    <button class="btn-icon btn-small" id="toggle-console-btn" title="Toggle console">▼ Hide</button>
+                </div>
+            </div>
+            <div class="console-container" id="console" aria-live="polite" aria-label="Application log">
+                <!-- Log entries rendered here -->
+            </div>
+        </section>
+
+        <!-- Settings Section -->
+        <section id="settings-section">
+            <button class="settings-toggle" id="settings-toggle">
+                <span>⚙</span> Settings
+            </button>
+            <div class="settings-content" id="settings-content">
+                <div class="setting-row">
+                    <label for="proxy-input">CORS Proxy URL</label>
+                    <input type="text" id="proxy-input" placeholder="https://corsproxy.io/?">
+                    <button class="btn-secondary btn-small" id="test-proxy-btn">Test</button>
+                </div>
+                <div class="setting-row">
+                    <label for="delay-input">Request Delay (ms)</label>
+                    <input type="number" id="delay-input" min="100" max="5000" step="100" value="500">
+                </div>
+                <div class="setting-row">
+                    <button class="btn-secondary btn-small" id="reset-settings-btn">Reset to Defaults</button>
+                </div>
+            </div>
+        </section>
     </div>
 
-    <div class="console-log" id="sysLog">v3.2 Ready. Uses export.arxiv.org + Retry logic.</div>
-</div>
+    <!-- JSZip from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
-<script>
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js'); });
-    }
+    <script>
+        // ============================================================
+        // arXiv Batch Downloader - Main Application
+        // Version: 0.1.0
+        // ============================================================
 
-    let papers = [];
-    // We hold the ZIP in memory so we can append to it on retries
-    let globalZip = new JSZip();
+        const APP_VERSION = '0.1.0';
 
-    function log(msg, type='info') {
-        const c = document.getElementById('sysLog');
-        const d = document.createElement('div');
-        d.textContent = `> ${msg}`;
-        if(type==='err') d.className = 'log-err';
-        if(type==='warn') d.className = 'log-warn';
-        c.appendChild(d);
-        c.scrollTop = c.scrollHeight;
-    }
+        // Default CORS proxies (tried in order)
+        const DEFAULT_PROXIES = [
+            'https://corsproxy.io/?',
+            'https://api.allorigins.win/raw?url='
+        ];
 
-    function scanContent() {
-        const text = document.getElementById('inputData').value;
-        const tableBody = document.getElementById('tableBody');
-        const container = document.getElementById('tableContainer');
-        const zipBtn = document.getElementById('zipBtn');
-        const scriptBtn = document.getElementById('scriptBtn');
+        // Application State
+        const state = {
+            papers: [],              // {id, title, selected, status, blob, error}
+            isDownloading: false,
+            isCancelled: false,
+            settings: {
+                proxyUrl: localStorage.getItem('arxiv-dl-proxy') || DEFAULT_PROXIES[0],
+                requestDelay: parseInt(localStorage.getItem('arxiv-dl-delay')) || 500
+            },
+            consoleVisible: localStorage.getItem('arxiv-dl-console-visible') !== 'false'
+        };
 
-        if (!text) return alert("Paste text first.");
+        // DOM Elements
+        const elements = {
+            pasteInput: document.getElementById('paste-input'),
+            parseBtn: document.getElementById('parse-btn'),
+            parseError: document.getElementById('parse-error'),
+            resultsSection: document.getElementById('results-section'),
+            resultsSummary: document.getElementById('results-summary'),
+            paperList: document.getElementById('paper-list'),
+            selectAllBtn: document.getElementById('select-all-btn'),
+            selectNoneBtn: document.getElementById('select-none-btn'),
+            downloadBtn: document.getElementById('download-btn'),
+            retryBtn: document.getElementById('retry-btn'),
+            cancelBtn: document.getElementById('cancel-btn'),
+            progressInfo: document.getElementById('progress-info'),
+            console: document.getElementById('console'),
+            clearConsoleBtn: document.getElementById('clear-console-btn'),
+            toggleConsoleBtn: document.getElementById('toggle-console-btn'),
+            settingsToggle: document.getElementById('settings-toggle'),
+            settingsContent: document.getElementById('settings-content'),
+            proxyInput: document.getElementById('proxy-input'),
+            delayInput: document.getElementById('delay-input'),
+            testProxyBtn: document.getElementById('test-proxy-btn'),
+            resetSettingsBtn: document.getElementById('reset-settings-btn'),
+            offlineBanner: document.getElementById('offline-banner')
+        };
 
-        papers = [];
-        globalZip = new JSZip(); // Reset ZIP
-        tableBody.innerHTML = '';
-        
-        const lines = text.split('\n');
-        const markdownRegex = /\|\s*(\d{4}\.\d{4,5})\s*\|\s*([^|]+)\|/;
-        const rawIdRegex = /(\d{4}\.\d{4,5})/g;
+        // ============================================================
+        // Logging System
+        // ============================================================
 
-        let foundViaTable = false;
+        const MAX_LOG_ENTRIES = 500;
+        let logEntries = [];
 
-        lines.forEach(line => {
-            const match = line.match(markdownRegex);
-            if (match) {
-                const id = match[1].trim();
-                let title = match[2].trim().replace(/\*\*/g, '').replace(/\[.*?\]/g, '');
-                papers.push({ id: id, title: title });
-                foundViaTable = true;
+        function log(level, message) {
+            const timestamp = new Date().toLocaleTimeString('en-GB', { hour12: false });
+            const entry = { timestamp, level, message };
+            logEntries.push(entry);
+
+            // Trim old entries
+            if (logEntries.length > MAX_LOG_ENTRIES) {
+                logEntries = logEntries.slice(-MAX_LOG_ENTRIES);
             }
-        });
 
-        if (!foundViaTable) {
-            const matches = [...new Set(text.match(rawIdRegex) || [])];
-            matches.forEach(id => {
-                const line = lines.find(l => l.includes(id)) || "";
-                let title = line.replace(id, '').replace(/[|*[\]]/g, '').trim();
-                if (title.length < 5) title = "Paper";
-                if (title.length > 60) title = title.substring(0,60);
-                papers.push({ id: id, title: title });
+            // Render
+            const div = document.createElement('div');
+            div.className = `log-entry ${level}`;
+            div.innerHTML = `<span class="timestamp">${timestamp}</span> <span class="level">${level.toUpperCase().padEnd(5)}</span> ${escapeHtml(message)}`;
+            elements.console.appendChild(div);
+
+            // Auto-scroll
+            elements.console.scrollTop = elements.console.scrollHeight;
+        }
+
+        function clearConsole() {
+            logEntries = [];
+            elements.console.innerHTML = '';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ============================================================
+        // Parsing Functions
+        // ============================================================
+
+        // Regex patterns for arXiv IDs
+        const ARXIV_PATTERNS = {
+            modern: /\b(\d{4}\.\d{4,5})(v\d+)?\b/g,
+            legacy: /\b([a-z-]+\/\d{7})(v\d+)?\b/g,
+            url: /(?:arxiv\.org|ar5iv\.org)\/(?:abs|pdf)\/([^\s"'<>)\]]+)/gi
+        };
+
+        // Extract arXiv ID from various URL formats
+        function extractArxivId(text) {
+            // First, handle Google redirect URLs
+            const googleMatch = text.match(/google\.com\/search\?q=([^&\s]+)/i);
+            if (googleMatch) {
+                text = decodeURIComponent(googleMatch[1]);
+            }
+
+            // URL decode if needed
+            if (text.includes('%')) {
+                try {
+                    text = decodeURIComponent(text);
+                } catch (e) {
+                    // Ignore decode errors
+                }
+            }
+
+            // Try to extract from URL
+            const urlMatch = text.match(/(?:arxiv\.org|ar5iv\.org)\/(?:abs|pdf)\/([^\s"'<>)\].]+)/i);
+            if (urlMatch) {
+                let id = urlMatch[1];
+                // Remove .pdf extension if present
+                id = id.replace(/\.pdf$/i, '');
+                return id;
+            }
+
+            // Try modern format
+            const modernMatch = text.match(/\b(\d{4}\.\d{4,5})(v\d+)?\b/);
+            if (modernMatch) {
+                return modernMatch[1];
+            }
+
+            // Try legacy format
+            const legacyMatch = text.match(/\b([a-z-]+\/\d{7})(v\d+)?\b/);
+            if (legacyMatch) {
+                return legacyMatch[1];
+            }
+
+            return null;
+        }
+
+        // Parse pasted content and extract papers
+        function parseContent(content) {
+            log('info', `Parsing pasted content (${content.length} characters)`);
+
+            const papers = [];
+            const seenIds = new Set();
+
+            // Detect format and parse
+            let rows = [];
+
+            if (content.includes('|') && content.includes('\n')) {
+                // Likely markdown table
+                log('info', 'Detected format: Markdown table');
+                rows = parseMarkdownTable(content);
+            } else if (content.includes('\t')) {
+                // Tab-separated (Excel/Sheets)
+                log('info', 'Detected format: Tab-separated values');
+                rows = parseTSV(content);
+            } else if (content.includes('<table') || content.includes('<tr')) {
+                // HTML table
+                log('info', 'Detected format: HTML table');
+                rows = parseHTMLTable(content);
+            } else {
+                // Plain text - extract inline
+                log('info', 'Detected format: Plain text');
+                rows = parsePlainText(content);
+            }
+
+            // Process rows to extract papers
+            for (const row of rows) {
+                const paper = extractPaperFromRow(row);
+                if (paper) {
+                    // Normalize ID (remove version suffix for dedup)
+                    const normalizedId = paper.id.replace(/v\d+$/, '');
+
+                    if (seenIds.has(normalizedId)) {
+                        log('warn', `Duplicate arXiv ID skipped: ${paper.id}`);
+                        continue;
+                    }
+
+                    seenIds.add(normalizedId);
+                    papers.push({
+                        id: paper.id,
+                        title: paper.title,
+                        selected: true,
+                        status: 'pending',
+                        blob: null,
+                        error: null
+                    });
+                }
+            }
+
+            log('info', `Found ${papers.length} arXiv references`);
+            return papers;
+        }
+
+        // Parse markdown table
+        function parseMarkdownTable(content) {
+            const lines = content.split('\n').filter(line => line.trim());
+            const rows = [];
+
+            for (const line of lines) {
+                // Skip separator lines
+                if (/^\|?[\s-:|]+\|?$/.test(line)) continue;
+
+                // Split by |
+                const cells = line.split('|')
+                    .map(cell => cell.trim())
+                    .filter(cell => cell.length > 0);
+
+                if (cells.length > 0) {
+                    rows.push(cells);
+                }
+            }
+
+            return rows;
+        }
+
+        // Parse TSV
+        function parseTSV(content) {
+            return content.split('\n')
+                .filter(line => line.trim())
+                .map(line => line.split('\t').map(cell => cell.trim()));
+        }
+
+        // Parse HTML table
+        function parseHTMLTable(content) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(content, 'text/html');
+            const rows = [];
+
+            doc.querySelectorAll('tr').forEach(tr => {
+                const cells = [];
+                tr.querySelectorAll('td, th').forEach(cell => {
+                    cells.push(cell.textContent.trim());
+                });
+                if (cells.length > 0) {
+                    rows.push(cells);
+                }
             });
+
+            return rows;
         }
 
-        if (papers.length === 0) return log("No IDs found.", 'err');
+        // Parse plain text for inline arXiv references
+        function parsePlainText(content) {
+            const rows = [];
 
-        papers.forEach((paper, index) => {
-            const row = document.createElement('tr');
-            row.id = `row-${index}`;
-            const safeTitle = paper.title.replace(/[^a-z0-9 ]/gi, '').substring(0, 50);
-            row.innerHTML = `
-                <td><input type="checkbox" class="paper-check" data-index="${index}" checked></td>
-                <td>${paper.id}</td>
-                <td id="status-${index}" style="font-size:0.85rem;">${safeTitle}</td>
-            `;
-            tableBody.appendChild(row);
-        });
+            // Find all arXiv URLs/IDs
+            const urlRegex = /(?:https?:\/\/)?(?:www\.)?(?:arxiv\.org|ar5iv\.org)\/(?:abs|pdf)\/([^\s"'<>)\]]+)/gi;
+            const idRegex = /\b(\d{4}\.\d{4,5})(v\d+)?\b/g;
 
-        container.style.display = 'block';
-        zipBtn.style.display = 'block';
-        scriptBtn.style.display = 'block'; // Always offer script
-        log(`Scanned ${papers.length} papers.`);
-    }
+            let match;
 
-    function toggleAll(source) {
-        document.querySelectorAll('.paper-check').forEach(cb => cb.checked = source.checked);
-    }
+            // Extract from URLs first
+            while ((match = urlRegex.exec(content)) !== null) {
+                const id = match[1].replace(/\.pdf$/i, '');
+                // Try to get surrounding text as title
+                const start = Math.max(0, match.index - 100);
+                const end = Math.min(content.length, match.index + match[0].length + 100);
+                const context = content.substring(start, end);
+                rows.push([id, context]);
+            }
 
-    async function startZipDownload(isRetry) {
-        const checkboxes = document.querySelectorAll('.paper-check:checked');
-        const zipBtn = document.getElementById('zipBtn');
-        const retryBtn = document.getElementById('retryBtn');
+            // If no URLs found, look for bare IDs
+            if (rows.length === 0) {
+                while ((match = idRegex.exec(content)) !== null) {
+                    const id = match[1];
+                    const start = Math.max(0, match.index - 100);
+                    const end = Math.min(content.length, match.index + match[0].length + 100);
+                    const context = content.substring(start, end);
+                    rows.push([id, context]);
+                }
+            }
 
-        zipBtn.disabled = true;
-        retryBtn.disabled = true;
+            return rows;
+        }
 
-        let queue = [];
-        
-        if (isRetry) {
-            // Only grab items that are NOT done
-            queue = Array.from(checkboxes).filter(cb => {
-                const row = document.getElementById(`row-${cb.dataset.index}`);
-                return !row.classList.contains('done');
+        // Extract paper info from a table row
+        function extractPaperFromRow(cells) {
+            let arxivId = null;
+            let title = null;
+
+            // Search all cells for arXiv ID
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+
+                // Check for Google redirect wrapper
+                if (cell.includes('google.com/search')) {
+                    log('warn', 'Stripped Google redirect wrapper from URL');
+                }
+
+                const id = extractArxivId(cell);
+                if (id && !arxivId) {
+                    arxivId = id;
+
+                    // Look for title in adjacent cells
+                    // Prefer cell to the left that isn't just the ID
+                    if (i > 0) {
+                        const leftCell = stripMarkdown(cells[i - 1]);
+                        if (leftCell && !extractArxivId(leftCell) && leftCell !== arxivId) {
+                            title = leftCell;
+                        }
+                    }
+
+                    // If no title yet, check right
+                    if (!title && i < cells.length - 1) {
+                        const rightCell = stripMarkdown(cells[i + 1]);
+                        if (rightCell && !extractArxivId(rightCell)) {
+                            title = rightCell;
+                        }
+                    }
+                }
+            }
+
+            // If we found an ID in first column and second column looks like title
+            if (arxivId && !title && cells.length > 1) {
+                const possibleTitle = stripMarkdown(cells[1]);
+                if (possibleTitle && !extractArxivId(possibleTitle) && possibleTitle.length > 5) {
+                    title = possibleTitle;
+                }
+            }
+
+            // If still no title, check first column as possible title when ID is in second column
+            if (!title && cells.length > 0) {
+                for (let i = 0; i < cells.length; i++) {
+                    const cell = stripMarkdown(cells[i]);
+                    if (cell && !extractArxivId(cell) && cell.length > 10 && cell !== 'Title' && cell !== 'arXiv ID') {
+                        title = cell;
+                        break;
+                    }
+                }
+            }
+
+            // Fallback: use arXiv ID as title
+            if (arxivId && !title) {
+                log('warn', `Could not extract title for ${arxivId}, using ID as filename`);
+                title = arxivId;
+            }
+
+            if (arxivId) {
+                return { id: arxivId, title: title || arxivId };
+            }
+
+            return null;
+        }
+
+        // Strip markdown formatting
+        function stripMarkdown(text) {
+            if (!text) return '';
+            return text
+                .replace(/\*\*/g, '')       // Bold
+                .replace(/\*/g, '')          // Italic
+                .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // Links
+                .replace(/`/g, '')           // Code
+                .trim();
+        }
+
+        // ============================================================
+        // UI Rendering
+        // ============================================================
+
+        function renderPaperList() {
+            elements.paperList.innerHTML = '';
+
+            state.papers.forEach((paper, index) => {
+                const div = document.createElement('div');
+                div.className = 'paper-item';
+                div.setAttribute('role', 'listitem');
+
+                const statusIcon = getStatusIcon(paper.status);
+                const statusClass = `status-${paper.status}`;
+
+                div.innerHTML = `
+                    <input type="checkbox" 
+                           id="paper-${index}" 
+                           ${paper.selected ? 'checked' : ''} 
+                           ${state.isDownloading ? 'disabled' : ''}
+                           aria-label="Select ${paper.title}">
+                    <div class="paper-info">
+                        <span class="paper-title" title="${escapeHtml(paper.title)}">${escapeHtml(paper.title)}</span>
+                        <span class="paper-id">${escapeHtml(paper.id)}</span>
+                    </div>
+                    <span class="paper-status ${statusClass}" title="${paper.error || paper.status}">${statusIcon}</span>
+                `;
+
+                const checkbox = div.querySelector('input');
+                checkbox.addEventListener('change', () => {
+                    state.papers[index].selected = checkbox.checked;
+                    updateDownloadButton();
+                });
+
+                elements.paperList.appendChild(div);
             });
-            log(`Retrying ${queue.length} failed items...`);
-        } else {
-            // Grab everything
-            queue = Array.from(checkboxes);
-            log("Starting fresh batch...");
+
+            updateDownloadButton();
         }
 
-        if (queue.length === 0) {
-            log("Nothing to download.");
-            zipBtn.disabled = false; 
-            return;
+        function getStatusIcon(status) {
+            switch (status) {
+                case 'pending': return '○';
+                case 'downloading': return '<span class="spinning">◌</span>';
+                case 'complete': return '✓';
+                case 'error': return '✗';
+                default: return '○';
+            }
         }
 
-        let successCount = 0;
-        let failCount = 0;
+        function updatePaperStatus(index, status, error = null) {
+            state.papers[index].status = status;
+            state.papers[index].error = error;
 
-        for (const cb of queue) {
-            const index = cb.dataset.index;
-            const paper = papers[index];
-            const row = document.getElementById(`row-${index}`);
-            const statusCell = document.getElementById(`status-${index}`);
+            const item = elements.paperList.children[index];
+            if (item) {
+                const statusSpan = item.querySelector('.paper-status');
+                statusSpan.className = `paper-status status-${status}`;
+                statusSpan.innerHTML = getStatusIcon(status);
+                statusSpan.title = error || status;
+            }
+        }
 
-            row.classList.remove('error');
-            row.classList.add('processing');
-            statusCell.textContent = "Fetching...";
+        function updateDownloadButton() {
+            const selectedCount = state.papers.filter(p => p.selected).length;
+            elements.downloadBtn.textContent = `Download Selected as ZIP (${selectedCount})`;
+            elements.downloadBtn.disabled = selectedCount === 0 || state.isDownloading;
+        }
+
+        function updateProgressInfo(current, total, message = '') {
+            if (message) {
+                elements.progressInfo.textContent = message;
+            } else if (total > 0) {
+                elements.progressInfo.textContent = `Downloading: ${current}/${total}`;
+            } else {
+                elements.progressInfo.textContent = '';
+            }
+        }
+
+        function showError(message) {
+            elements.parseError.textContent = message;
+            elements.parseError.classList.add('visible');
+        }
+
+        function hideError() {
+            elements.parseError.classList.remove('visible');
+        }
+
+        // ============================================================
+        // Download Functions
+        // ============================================================
+
+        async function downloadPapers() {
+            const selectedPapers = state.papers.filter(p => p.selected);
+
+            if (selectedPapers.length === 0) {
+                log('warn', 'No papers selected');
+                return;
+            }
+
+            // Warn for large batches
+            if (selectedPapers.length > 50) {
+                const proceed = confirm(`You're about to download ${selectedPapers.length} papers. This may use significant memory. Continue?`);
+                if (!proceed) return;
+            }
+
+            state.isDownloading = true;
+            state.isCancelled = false;
+            elements.downloadBtn.disabled = true;
+            elements.cancelBtn.classList.add('visible');
+            elements.retryBtn.classList.remove('visible');
+
+            // Disable checkboxes
+            elements.paperList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.disabled = true);
+
+            log('info', `Starting download of ${selectedPapers.length} papers`);
+            log('info', `Using proxy: ${state.settings.proxyUrl}`);
+
+            let completed = 0;
+            let failed = 0;
+
+            for (let i = 0; i < state.papers.length; i++) {
+                if (state.isCancelled) {
+                    log('info', 'Download cancelled by user');
+                    break;
+                }
+
+                const paper = state.papers[i];
+                if (!paper.selected) continue;
+
+                // Skip already completed
+                if (paper.status === 'complete' && paper.blob) {
+                    completed++;
+                    continue;
+                }
+
+                updatePaperStatus(i, 'downloading');
+                updateProgressInfo(completed + failed + 1, selectedPapers.length);
+
+                const pdfUrl = `https://arxiv.org/pdf/${paper.id}.pdf`;
+                log('info', `[${completed + failed + 1}/${selectedPapers.length}] Fetching ${paper.id}...`);
+
+                try {
+                    const blob = await fetchWithProxy(pdfUrl, paper.id);
+
+                    if (blob) {
+                        state.papers[i].blob = blob;
+                        const sizeKB = (blob.size / 1024).toFixed(1);
+                        log('info', `[${completed + failed + 1}/${selectedPapers.length}] ✓ ${truncate(paper.title, 40)} (${sizeKB} KB)`);
+                        updatePaperStatus(i, 'complete');
+                        completed++;
+                    } else {
+                        throw new Error('Empty response');
+                    }
+                } catch (error) {
+                    log('error', `[${completed + failed + 1}/${selectedPapers.length}] ✗ ${paper.id}: ${error.message}`);
+                    updatePaperStatus(i, 'error', error.message);
+                    failed++;
+                }
+
+                // Rate limiting delay
+                if (i < state.papers.length - 1 && !state.isCancelled) {
+                    await sleep(state.settings.requestDelay);
+                }
+            }
+
+            log('info', `Download phase complete: ${completed} succeeded, ${failed} failed`);
+
+            // Show retry button if there were failures
+            if (failed > 0) {
+                elements.retryBtn.classList.add('visible');
+            }
+
+            // Generate ZIP if we have any successful downloads
+            const papersWithBlobs = state.papers.filter(p => p.blob);
+            if (papersWithBlobs.length > 0 && !state.isCancelled) {
+                await generateAndDownloadZip(papersWithBlobs);
+            }
+
+            // Reset state
+            state.isDownloading = false;
+            elements.downloadBtn.disabled = false;
+            elements.cancelBtn.classList.remove('visible');
+            elements.paperList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.disabled = false);
+            updateProgressInfo(0, 0, '');
+        }
+
+        async function fetchWithProxy(url, arxivId) {
+            const proxies = [state.settings.proxyUrl, ...DEFAULT_PROXIES.filter(p => p !== state.settings.proxyUrl)];
+            let lastError = null;
+
+            for (const proxy of proxies) {
+                if (state.isCancelled) return null;
+
+                try {
+                    const proxyUrl = proxy + encodeURIComponent(url);
+                    const controller = new AbortController();
+                    const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+                    const response = await fetch(proxyUrl, {
+                        signal: controller.signal,
+                        headers: {
+                            'Accept': 'application/pdf'
+                        }
+                    });
+
+                    clearTimeout(timeout);
+
+                    if (response.status === 429) {
+                        log('warn', `Rate limited (429), waiting before retry...`);
+                        await sleep(2000);
+                        continue;
+                    }
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const blob = await response.blob();
+
+                    // Verify it's a PDF (check magic bytes or content-type)
+                    const isPdf = await verifyPdf(blob);
+                    if (!isPdf) {
+                        log('warn', `Proxy ${proxy} returned non-PDF response, trying fallback...`);
+                        continue;
+                    }
+
+                    return blob;
+
+                } catch (error) {
+                    lastError = error;
+                    if (error.name === 'AbortError') {
+                        log('warn', `Timeout fetching ${arxivId} via ${truncate(proxy, 30)}`);
+                    } else {
+                        log('warn', `Proxy ${truncate(proxy, 30)} failed: ${error.message}`);
+                    }
+                }
+            }
+
+            throw lastError || new Error('All proxies failed');
+        }
+
+        async function verifyPdf(blob) {
+            // Check content type
+            if (blob.type === 'application/pdf') return true;
+
+            // Check magic bytes
+            const header = await blob.slice(0, 5).text();
+            return header === '%PDF-';
+        }
+
+        async function generateAndDownloadZip(papers) {
+            log('info', 'Creating ZIP archive...');
+            updateProgressInfo(0, 0, 'Creating ZIP...');
+
+            const zip = new JSZip();
+            const usedFilenames = new Set();
+
+            for (const paper of papers) {
+                let filename = generateFilename(paper.title, paper.id);
+
+                // Handle duplicates
+                let baseName = filename.replace(/\.pdf$/, '');
+                let counter = 2;
+                while (usedFilenames.has(filename)) {
+                    filename = `${baseName}_${counter}.pdf`;
+                    counter++;
+                }
+                usedFilenames.add(filename);
+
+                zip.file(filename, paper.blob);
+            }
 
             try {
-                // Use EXPORT subdomain (often cleaner)
-                const targetUrl = `https://export.arxiv.org/pdf/${paper.id}.pdf`;
-                // Proxy
-                const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(targetUrl);
-                
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                
-                const blob = await response.blob();
-                
-                // Check if we got a tiny error HTML page instead of PDF
-                if (blob.size < 2000) throw new Error("File too small (likely blocked)");
+                const zipBlob = await zip.generateAsync({
+                    type: 'blob',
+                    compression: 'STORE'  // No compression (PDFs are already compressed)
+                }, (metadata) => {
+                    updateProgressInfo(0, 0, `Creating ZIP: ${metadata.percent.toFixed(0)}%`);
+                });
 
-                const safeTitle = paper.title.replace(/[^a-z0-9 ]/gi, '').trim().substring(0, 60);
-                const fileName = `${paper.id} - ${safeTitle || 'Paper'}.pdf`;
+                const sizeMB = (zipBlob.size / (1024 * 1024)).toFixed(1);
+                const filename = `arxiv_papers_${papers.length}.zip`;
 
-                globalZip.file(fileName, blob);
+                log('info', `ZIP complete: ${filename} (${sizeMB} MB)`);
 
-                row.classList.remove('processing');
-                row.classList.add('done');
-                statusCell.innerHTML = `✓ Saved`;
-                successCount++;
+                // Trigger download
+                const url = URL.createObjectURL(zipBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
 
-                // 1.5s delay to be polite and avoid 403s
-                await new Promise(r => setTimeout(r, 1500));
+                log('info', 'Download initiated');
 
-            } catch (err) {
-                row.classList.remove('processing');
-                row.classList.add('error');
-                statusCell.textContent = "Failed (403/Block)";
-                failCount++;
-                log(`Error ${paper.id}: ${err.message}`, 'err');
+            } catch (error) {
+                log('error', `ZIP generation failed: ${error.message}`);
+                alert('Failed to create ZIP file. Try downloading fewer papers at once.');
             }
         }
 
-        // Finalize
-        zipBtn.disabled = false;
-        retryBtn.disabled = false;
+        function generateFilename(title, arxivId) {
+            const sanitised = title
+                .replace(/[<>:"/\\|?*]/g, '')   // Remove invalid chars
+                .replace(/\s+/g, '_')            // Spaces to underscores
+                .replace(/_+/g, '_')             // Collapse multiple underscores
+                .substring(0, 80);               // Limit length
 
-        if (failCount > 0) {
-            retryBtn.style.display = 'block';
-            zipBtn.textContent = "Download Partial ZIP";
-            log(`Batch finished. ${failCount} failed. Click 'Retry Failed'.`, 'warn');
-        } else {
-            retryBtn.style.display = 'none';
-            zipBtn.textContent = "Download ZIP";
-            log("All downloads successful!", 'warn'); // using warn color for visibility
+            return `${sanitised}_${arxivId}.pdf`;
         }
 
-        // Always offer the ZIP if we have files
-        if (successCount > 0 || Object.keys(globalZip.files).length > 0) {
-            generateZipFile();
+        // ============================================================
+        // Utility Functions
+        // ============================================================
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
         }
-    }
 
-    async function generateZipFile() {
-        log("Generating ZIP...");
-        const content = await globalZip.generateAsync({type:"blob"});
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(content);
-        a.download = `arxiv_papers_${new Date().toISOString().slice(0,10)}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    }
+        function truncate(str, maxLength) {
+            if (str.length <= maxLength) return str;
+            return str.substring(0, maxLength - 1) + '…';
+        }
 
-    function downloadShellScript() {
-        // Fallback for Linux/Terminal users
-        let scriptContent = "#!/bin/bash\n# ArXiv Bulk Downloader Script\n\n";
-        scriptContent += "mkdir -p arxiv_downloads\ncd arxiv_downloads\n\n";
-        
-        papers.forEach(p => {
-            const safeTitle = p.title.replace(/[^a-z0-9 ]/gi, '').trim().substring(0, 60);
-            const fileName = `${p.id} - ${safeTitle}.pdf`;
-            // Use User-Agent header to mimic browser
-            scriptContent += `echo "Downloading ${p.id}..."\n`;
-            scriptContent += `curl -L -A "Mozilla/5.0" -o "${fileName}" "https://export.arxiv.org/pdf/${p.id}.pdf"\n`;
-            scriptContent += "sleep 3\n\n"; // 3 second delay
+        // ============================================================
+        // Event Handlers
+        // ============================================================
+
+        // Parse button
+        elements.parseBtn.addEventListener('click', () => {
+            const content = elements.pasteInput.value.trim();
+
+            hideError();
+
+            if (!content) {
+                showError('Please paste some content first.');
+                return;
+            }
+
+            state.papers = parseContent(content);
+
+            if (state.papers.length === 0) {
+                showError('No arXiv links found. Check your input format.');
+                elements.resultsSection.classList.remove('visible');
+                return;
+            }
+
+            elements.resultsSummary.textContent = `Found ${state.papers.length} papers`;
+            elements.resultsSection.classList.add('visible');
+            renderPaperList();
         });
 
-        const blob = new Blob([scriptContent], {type: "text/x-sh"});
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = "download_papers.sh";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        log("Shell script downloaded. Run in terminal: sh download_papers.sh");
-    }
-</script>
+        // Select all/none
+        elements.selectAllBtn.addEventListener('click', () => {
+            state.papers.forEach(p => p.selected = true);
+            renderPaperList();
+        });
+
+        elements.selectNoneBtn.addEventListener('click', () => {
+            state.papers.forEach(p => p.selected = false);
+            renderPaperList();
+        });
+
+        // Download button
+        elements.downloadBtn.addEventListener('click', downloadPapers);
+
+        // Cancel button
+        elements.cancelBtn.addEventListener('click', () => {
+            state.isCancelled = true;
+            log('info', 'Cancelling download...');
+        });
+
+        // Retry button
+        elements.retryBtn.addEventListener('click', () => {
+            // Reset failed papers to pending
+            state.papers.forEach(p => {
+                if (p.status === 'error') {
+                    p.status = 'pending';
+                    p.error = null;
+                }
+            });
+            renderPaperList();
+            downloadPapers();
+        });
+
+        // Console controls
+        elements.clearConsoleBtn.addEventListener('click', clearConsole);
+
+        elements.toggleConsoleBtn.addEventListener('click', () => {
+            state.consoleVisible = !state.consoleVisible;
+            elements.console.classList.toggle('collapsed', !state.consoleVisible);
+            elements.toggleConsoleBtn.textContent = state.consoleVisible ? '▼ Hide' : '▶ Show';
+            localStorage.setItem('arxiv-dl-console-visible', state.consoleVisible);
+        });
+
+        // Settings
+        elements.settingsToggle.addEventListener('click', () => {
+            elements.settingsContent.classList.toggle('visible');
+        });
+
+        elements.proxyInput.value = state.settings.proxyUrl;
+        elements.delayInput.value = state.settings.requestDelay;
+
+        elements.proxyInput.addEventListener('change', () => {
+            state.settings.proxyUrl = elements.proxyInput.value.trim() || DEFAULT_PROXIES[0];
+            localStorage.setItem('arxiv-dl-proxy', state.settings.proxyUrl);
+            log('info', `Proxy URL updated: ${state.settings.proxyUrl}`);
+        });
+
+        elements.delayInput.addEventListener('change', () => {
+            state.settings.requestDelay = Math.max(100, Math.min(5000, parseInt(elements.delayInput.value) || 500));
+            elements.delayInput.value = state.settings.requestDelay;
+            localStorage.setItem('arxiv-dl-delay', state.settings.requestDelay);
+            log('info', `Request delay updated: ${state.settings.requestDelay}ms`);
+        });
+
+        elements.testProxyBtn.addEventListener('click', async () => {
+            const testUrl = 'https://arxiv.org/pdf/2301.00001.pdf';
+            const proxy = elements.proxyInput.value.trim() || DEFAULT_PROXIES[0];
+
+            log('info', `Testing proxy: ${proxy}`);
+            elements.testProxyBtn.disabled = true;
+            elements.testProxyBtn.textContent = 'Testing...';
+
+            try {
+                const response = await fetch(proxy + encodeURIComponent(testUrl), {
+                    method: 'HEAD'
+                });
+
+                if (response.ok) {
+                    log('info', '✓ Proxy test successful');
+                    alert('Proxy is working!');
+                } else {
+                    log('warn', `✗ Proxy test failed: HTTP ${response.status}`);
+                    alert(`Proxy test failed: HTTP ${response.status}`);
+                }
+            } catch (error) {
+                log('error', `✗ Proxy test failed: ${error.message}`);
+                alert(`Proxy test failed: ${error.message}`);
+            }
+
+            elements.testProxyBtn.disabled = false;
+            elements.testProxyBtn.textContent = 'Test';
+        });
+
+        elements.resetSettingsBtn.addEventListener('click', () => {
+            state.settings.proxyUrl = DEFAULT_PROXIES[0];
+            state.settings.requestDelay = 500;
+            elements.proxyInput.value = state.settings.proxyUrl;
+            elements.delayInput.value = state.settings.requestDelay;
+            localStorage.removeItem('arxiv-dl-proxy');
+            localStorage.removeItem('arxiv-dl-delay');
+            log('info', 'Settings reset to defaults');
+        });
+
+        // Offline detection
+        function updateOnlineStatus() {
+            elements.offlineBanner.classList.toggle('visible', !navigator.onLine);
+        }
+
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        updateOnlineStatus();
+
+        // Initialize console visibility
+        if (!state.consoleVisible) {
+            elements.console.classList.add('collapsed');
+            elements.toggleConsoleBtn.textContent = '▶ Show';
+        }
+
+        // ============================================================
+        // Service Worker Registration
+        // ============================================================
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => log('info', 'Service worker registered'))
+                .catch(err => log('warn', `Service worker registration failed: ${err.message}`));
+        }
+
+        // ============================================================
+        // Initialization
+        // ============================================================
+
+        log('info', `App initialised, version ${APP_VERSION}`);
+    </script>
 </body>
 </html>
