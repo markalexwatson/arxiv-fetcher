@@ -1,9 +1,8 @@
 // Service Worker for arXiv Batch Downloader
 // Version: 0.1.0
 
-const CACHE_NAME = 'arxiv-dl-v0.1.1';
+const CACHE_NAME = 'arxiv-dl-v0.1.2';
 const STATIC_ASSETS = [
-    './',
     './index.html',
     './manifest.json',
     './icon-192.png',
